@@ -1,5 +1,11 @@
-gradio==4.37.2
-imageio
-imageio-ffmpeg
-loguru
-fastapi==0.112.2
+# SAM3-GUI runtime dependencies
+gradio==6.5.1
+imageio==2.37.2
+imageio-ffmpeg==0.6.0
+loguru==0.7.3
+fastapi==0.128.0
+decord==0.6.0
+pycocotools==2.0.11
+
+# Install SAM3 separately first (in editable mode):
+# pip install -e /path/to/sam3
