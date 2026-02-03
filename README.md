@@ -4,10 +4,13 @@ A GUI tool for **SAM3** (Segment Anything with Concepts) video and image segment
 
 ## Key Features
 
-- **Text Prompting (NEW!)**: Segment objects using natural language (e.g., "person", "car", "red shoe")
+- **Text Prompting**: Segment objects using natural language (e.g., "person", "car", "red shoe")
 - **Point Clicking**: Interactive refinement with positive/negative points
-- **Video Tracking**: Multi-object tracking across video frames
+- **Box Prompts**: Draw bounding boxes to segment objects
+- **Video Tracking**: Multi-object tracking across video frames with propagation directions
+- **Multi-Object Management**: Track multiple objects independently with "Add New Mask"
 - **Open-Vocabulary**: Detect 4M+ different object types
+- **Frame-Specific Points**: Points only appear on their designated frames
 - **Auto-Download**: SAM3 model automatically downloads from HuggingFace
 
 ## Installation
@@ -32,10 +35,7 @@ cd SAM3-GUI
 pip install -r requirements.txt
 ```
 
-**Note:** SAM3-GUI requires SAM3 to be installed first. The GUI requirements include:
-- Gradio 4.37.2
-- imageio, imageio-ffmpeg
-- loguru, fastapi
+**Note:** SAM3-GUI requires SAM3 to be installed first.
 
 ### 3. HuggingFace Authentication (Optional)
 
@@ -71,87 +71,111 @@ data_root/
 │   └── seq2.mp4
 ├── images/          # For pre-extracted frame sequences
 │   ├── seq1/
-│   │   ├── 00000.png
-│   │   ├── 00001.png
+│   │   ├── frame_00000.png
+│   │   ├── frame_00001.png
 │   │   └── ...
 │   └── seq2/
 │       └── ...
 └── masks/           # Output directory for saved masks
     ├── seq1/
+    │   ├── frame_00000.png
+    │   ├── frame_00000.npy
+    │   └── ...
     └── seq2/
 ```
 
-### Text Prompting (NEW!)
+## Video Mode Workflow
 
-1. Load a video or image sequence
-2. Click **"Get SAM features"** to initialize SAM3
-3. **Enter a text description** (e.g., "person walking", "car", "dog")
-4. Click **"Segment with Text"** to detect all matching objects
-5. Click **"Submit mask for tracking"** to propagate through video
+### 1. Load Frames
 
-**Text Prompt Examples:**
-- "person"
-- "car"
-- "red shirt"
-- "player in white"
-- "basketball hoop"
+- **Option A**: Select a video file and extract frames
+  - Choose video from dropdown
+  - Set start/end time, FPS, and height
+  - Click "Extract Frames"
 
-### Point-Based Refinement
+- **Option B**: Load pre-extracted frames
+  - Select a frame folder from the dropdown
+  - Click "Load Selected Frames"
 
-Traditional SAM-style interaction is still supported:
+### 2. Add Prompts
 
-1. Click **"Toggle positive"** to add inclusion points (green)
-2. Click **"Toggle negative"** to add exclusion points (red)
-3. Click on the image to place points
-4. Click **"Submit mask for tracking"** when satisfied
+Choose from three prompt types:
 
-### Video Processing Workflow
+#### **Text Prompts**
+1. Enter a text description (e.g., "person", "car", "red shirt")
+2. Click "Detect with Text"
+3. Use "Add New Mask" to segment additional objects
 
-1. **Select or extract frames:**
-   - Choose an MP4 from the video list and extract frames
-   - OR select a pre-extracted image directory
+#### **Point Prompts**
+1. Click "+ Positive" for inclusion points (green)
+2. Click "- Negative" for exclusion points (red)
+3. Click on the **Output Image** to place points
+4. Points are frame-specific - switch frames to add points on other frames
+5. View the "Added Points" table to see all points across frames
 
-2. **Initialize SAM3:**
-   - Click "Get SAM features" to initialize the model
+#### **Box Prompts**
+1. Click "Segment Box"
+2. Click two corners on the frame to draw a box
+3. The object inside will be segmented
 
-3. **Add prompts:**
-   - Use text prompts to segment objects by description
-   - OR use point clicks for manual refinement
+### 3. Manage Objects
 
-4. **Track through video:**
-   - Click "Submit mask for tracking" to propagate masks
-   - Review the tracked video output
+- **View Tracked Objects**: Dropdown shows all detected objects (0, 1, 2, ...)
+- **Remove Objects**: Select an object and click "Remove Selected Object"
 
-5. **Save masks:**
-   - Click "Save masks" to export masks to the output directory
+### 4. Track Through Video
 
-## How Text Prompting Works
+1. Select propagation direction:
+   - **Forward**: Propagate from current frame to end
+   - **Backward**: Propagate from current frame to start
+   - **Both**: Propagate in both directions (default)
 
-SAM3 introduces open-vocabulary segmentation powered by vision-language models:
+2. Click "Track All Frames"
+3. View the tracked video output
+4. Use frame slider to review results on individual frames
 
-1. **Text Encoder**: Your prompt is encoded into a semantic embedding
-2. **Detector**: SAM3's detector finds objects matching the text description
-3. **Tracker**: The detected objects are tracked through the video
+### 5. Save Masks
 
-**Advantages over point clicking:**
-- No manual annotation required
-- Can find all instances of a concept at once
-- Works with 4M+ different object descriptions
-- Can combine text with points for refinement
+- Mask save path is auto-generated: `{root_dir}/masks/{sequence_name}/`
+- Click "Save Masks" to export masks as PNG and NPZ files
+
+## Image Mode Workflow
+
+Single image segmentation with three modes:
+
+### **Find All Mode**
+1. Enter a text prompt (e.g., "shoe", "person", "car")
+2. Adjust confidence threshold (0.0-1.0)
+3. Click "Find All" to detect all matching objects
+
+### **Box Mode**
+1. Click "Segment Box"
+2. Draw a box by clicking two corners on the image
+3. The object inside will be segmented
+
+### **Point Mode**
+1. Click "+ Positive" or "- Negative"
+2. Click on the image to place points
+3. Use "Remove Point by Index" to delete specific points
 
 ## Tips for Best Results
 
 ### Text Prompting
 - **Be specific**: "person in red shirt" works better than "person"
 - **Use simple descriptions**: Common nouns work best (person, car, dog)
-- **Combine with points**: Use text for initial detection, then refine with points
 - **Try variations**: If "car" doesn't work, try "vehicle" or "automobile"
 
 ### Point Clicking
 - Use positive points (green) on the object to segment
 - Use negative points (red) on background or other objects
 - Start with 1-3 positive points, add negatives as needed
-- Points can be added to multiple objects for multi-object tracking
+- **Important**: Click on the **Output Image** (right side) when adding multiple points
+
+### Multi-Object Tracking
+1. Segment your first object (text/point/box)
+2. Click "Add New Mask" to increment mask index
+3. Segment the second object
+4. Click "Track All Frames" to track all objects together
 
 ## Troubleshooting
 
@@ -178,12 +202,24 @@ If you run out of GPU memory:
 
 ### Text Prompt Not Working
 
-1. Ensure SAM3 features are initialized (click "Get SAM features")
+1. Ensure frames are loaded first
 2. Try simpler or more common descriptions
 3. Check that the object is clearly visible in the current frame
 4. Combine with point clicks for difficult cases
 
-## Acknowledge
+### Points Not Remembering
+
+- Points are frame-specific - each frame has its own set of points
+- Use the "Added Points" table to see all points across all frames
+- When switching frames, only points for that frame are displayed
+
+### Dtype Mismatch Error
+
+If you see "mat1 and mat2 must have the same dtype" errors:
+- Ensure you're using PyTorch with CUDA support
+- The code now handles BFloat16/Float32 dtype mismatches automatically
+
+## Acknowledgments
 
 The app is modified based on [shape-of-motion](https://github.com/vye16/shape-of-motion/), upgraded from SAM2 to SAM3 with text prompting support.
 
