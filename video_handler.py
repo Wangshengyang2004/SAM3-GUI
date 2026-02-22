@@ -641,6 +641,22 @@ class VideoModeHandler:
                     # If we re-add the box, SAM3 might detect different objects.
                     # Instead, we directly propagate using the existing inference state.
                     guru.debug(f"Using existing box prompt detection state for tracking (keeping obj_ids: {kept_obj_ids})")
+                    # Debug: check the SAM3 internal state
+                    session = self.video_predictor._get_session(self.inference_state)
+                    inf_state = session["state"]
+                    tracker_states = inf_state.get("tracker_inference_states", "MISSING")
+                    tracker_meta = inf_state.get("tracker_metadata", "MISSING")
+                    action_hist = inf_state.get("action_history", "MISSING")
+                    prev_stages = inf_state.get("previous_stages_out", "MISSING")
+                    if isinstance(tracker_states, list):
+                        guru.debug(f"  tracker_inference_states: {len(tracker_states)} items")
+                    if isinstance(tracker_meta, dict):
+                        guru.debug(f"  tracker_metadata: obj_ids_all_gpu={tracker_meta.get('obj_ids_all_gpu', 'N/A')}")
+                    if isinstance(action_hist, list):
+                        guru.debug(f"  action_history: {len(action_hist)} items")
+                    if isinstance(prev_stages, list):
+                        non_null = sum(1 for x in prev_stages if x is not None)
+                        guru.debug(f"  previous_stages_out: {non_null}/{len(prev_stages)} non-null")
 
                 with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                     guru.debug(f"Starting stream request: session={self.inference_state}, direction={propagation_direction}")
