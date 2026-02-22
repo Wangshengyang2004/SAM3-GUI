@@ -118,7 +118,7 @@ def make_demo(
                             vid_start = gr.Number(0, label="Start (s)")
                             vid_end = gr.Number(10, label="End (s)")
                             vid_fps = gr.Number(30, label="FPS")
-                            vid_height = gr.Number(540, label="Height")
+                            vid_height = gr.Number(0, label="Height (0=auto)")
                         vid_extract_btn = gr.Button("Extract Frames")
 
                         gr.Markdown("---")
@@ -159,7 +159,7 @@ def make_demo(
                                 vid_neg_btn = gr.Button("- Negative")
                                 vid_clear_pts_btn = gr.Button("Clear Points")
                             vid_point_table = gr.DataFrame(
-                                headers=["Frame", "X", "Y", "Type", "Index"],
+                                headers=["Frame", "X", "Y", "Type", "Obj ID", "Index"],
                                 label="Added Points",
                                 interactive=False,
                                 value=[]
@@ -277,13 +277,14 @@ def make_demo(
 
                 def update_point_table():
                     rows = []
-                    for idx, (pt, label, frame) in enumerate(zip(
+                    for idx, (pt, label, frame, obj_id) in enumerate(zip(
                         video_handler.selected_points,
                         video_handler.selected_labels,
-                        video_handler.selected_point_frames
+                        video_handler.selected_point_frames,
+                        video_handler.selected_point_obj_ids
                     )):
                         label_str = "Positive" if label == 1.0 else "Negative"
-                        rows.append([frame, int(pt[0]), int(pt[1]), label_str, idx])
+                        rows.append([frame, int(pt[0]), int(pt[1]), label_str, obj_id, idx])
                     guru.debug(f"update_point_table: returning {len(rows)} rows: {rows}")
                     return gr.update(value=rows)
 

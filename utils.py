@@ -1,5 +1,7 @@
 import colorsys
+import json
 import os
+import subprocess
 
 import cv2
 import imageio.v2 as iio
@@ -139,3 +141,32 @@ def colorize_masks(images, index_masks, fac: float = 0.5):
         out_f = fac * img / 255 + (1 - fac) * clr_mask / 255
         out_frames.append((255 * out_f).astype("uint8"))
     return out_frames, color_masks
+
+
+def get_video_resolution(video_path):
+    """Get the original resolution of a video file.
+
+    Args:
+        video_path: Path to the video file
+
+    Returns:
+        tuple: (width, height) or None if detection fails
+    """
+    try:
+        cmd = [
+            "ffprobe",
+            "-v", "error",
+            "-select_streams", "v:0",
+            "-show_entries", "stream=width,height",
+            "-of", "json",
+            video_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        data = json.loads(result.stdout)
+        if data.get("streams"):
+            width = data["streams"][0]["width"]
+            height = data["streams"][0]["height"]
+            return (width, height)
+    except Exception as e:
+        print(f"Failed to get video resolution: {e}")
+    return None

@@ -4,10 +4,12 @@ import shutil
 import subprocess
 
 import gradio as gr
+from loguru import logger as guru
 
 from utils import (
     first_or_none,
     frame_dir_path,
+    get_video_resolution,
     image_file_path,
     list_image_files,
     list_image_folders,
@@ -67,6 +69,17 @@ def extract_video_frames(root_dir, vid_file, start, end, fps, height, vid_name, 
         shutil.rmtree(out_dir)
     os.makedirs(out_dir, exist_ok=True)
 
+    # Auto-detect video original resolution if height is 0 or not specified
+    if not height or height <= 0:
+        resolution = get_video_resolution(vid_path)
+        if resolution:
+            width, original_height = resolution
+            height = original_height
+            guru.info(f"Auto-detected video resolution: {width}x{height}")
+        else:
+            height = 1024  # fallback to HD resolution
+            guru.warning("Failed to detect resolution, using default 1024")
+
     def to_hms(seconds):
         t = int(seconds)
         return datetime.time(t // 3600, (t % 3600) // 60, t % 60).strftime("%H:%M:%S")
@@ -82,6 +95,7 @@ def extract_video_frames(root_dir, vid_file, start, end, fps, height, vid_name, 
         vid_path,
         "-vf",
         f"scale=-1:{int(height)},fps={int(fps)}",
+        "-q:v", "2",  # High quality JPEG (1-31, lower is better)
         f"{out_dir}/%05d.jpg",
     ]
 

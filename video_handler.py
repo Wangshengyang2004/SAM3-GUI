@@ -26,6 +26,7 @@ class VideoModeHandler:
         self.selected_points = []
         self.selected_labels = []
         self.selected_point_frames = []
+        self.selected_point_obj_ids = []  # Track which object each point belongs to
         self.cur_label_val = 1.0
 
         self.frame_index = 0
@@ -41,9 +42,8 @@ class VideoModeHandler:
         # Store text prompt info for re-applying before tracking
         self.current_text_prompt = None
         self.text_prompt_frame_idx = 0
-        # Store box prompt info for re-applying before tracking
-        self.current_box_prompt = None
-        self.box_prompt_frame_idx = 0
+        # Store box prompts for multiple objects: {obj_id: {"box": [xmin, ymin, w, h], "frame_idx": int}}
+        self.box_prompts = {}
 
     def _init_tracker_state(self):
         """Initialize point-tracking state lazily (only when points mode is used)."""
@@ -124,6 +124,7 @@ class VideoModeHandler:
         self.selected_points.clear()
         self.selected_labels.clear()
         self.selected_point_frames.clear()
+        self.selected_point_obj_ids.clear()
         return None, None, "Cleared points"
 
     def set_positive(self):
@@ -158,10 +159,10 @@ class VideoModeHandler:
         self.selected_points.clear()
         self.selected_labels.clear()
         self.selected_point_frames.clear()
+        self.selected_point_obj_ids.clear()
         self.current_text_prompt = None
         self.text_prompt_frame_idx = 0
-        self.current_box_prompt = None
-        self.box_prompt_frame_idx = 0
+        self.box_prompts = {}
 
         if self.inference_state is not None:
             try:
@@ -262,19 +263,21 @@ class VideoModeHandler:
         self.selected_points.append([j, i])
         self.selected_labels.append(self.cur_label_val)
         self.selected_point_frames.append(frame_idx)
+        self.selected_point_obj_ids.append(self.cur_mask_idx)  # Track which object this point belongs to
         guru.debug(
             f"Added point at frame={frame_idx}, xy=({j},{i}), "
-            f"label={self.cur_label_val}, total_points={len(self.selected_points)}"
+            f"label={self.cur_label_val}, obj_id={self.cur_mask_idx}, total_points={len(self.selected_points)}"
         )
-        # Only pass points that belong to the current frame
+        # Only pass points that belong to the current frame and current object
         # SAM3 stores points per-frame in point_inputs_per_frame[frame_idx]
         # Passing points from other frames would incorrectly add them to the current frame
         current_frame_points = [
-            (pt, lbl) for pt, lbl, frm in zip(
+            (pt, lbl) for pt, lbl, frm, obj_id in zip(
                 self.selected_points,
                 self.selected_labels,
-                self.selected_point_frames
-            ) if frm == frame_idx
+                self.selected_point_frames,
+                self.selected_point_obj_ids
+            ) if frm == frame_idx and obj_id == self.cur_mask_idx
         ]
 
         if current_frame_points:
@@ -285,7 +288,14 @@ class VideoModeHandler:
             labels_array = np.array([], dtype=np.int32)
 
         masks = self.get_sam_mask(frame_idx, points_array, labels_array)
-        index_mask = self.make_index_mask(masks)
+
+        # Update cur_masks with the new mask for current object
+        # This preserves masks from other objects
+        for obj_id, mask in masks.items():
+            self.cur_masks[obj_id] = mask
+
+        # Generate index mask from all objects in cur_masks
+        index_mask = self.make_index_mask(self.cur_masks)
 
         # Update the tracked masks for this frame if we have tracked results
         if self.index_masks_all and 0 <= frame_idx < len(self.index_masks_all):
@@ -300,6 +310,7 @@ class VideoModeHandler:
             del self.selected_points[index]
             del self.selected_labels[index]
             del self.selected_point_frames[index]
+            del self.selected_point_obj_ids[index]
             return True
         return False
 
@@ -313,15 +324,17 @@ class VideoModeHandler:
         del self.selected_points[selected_index]
         del self.selected_labels[selected_index]
         del self.selected_point_frames[selected_index]
+        del self.selected_point_obj_ids[selected_index]
 
-        # Re-generate mask with remaining points from the current frame only
+        # Re-generate mask with remaining points from the current frame and current object only
         if self.selected_points and self.image is not None:
             current_frame_points = [
-                (pt, lbl) for pt, lbl, frm in zip(
+                (pt, lbl) for pt, lbl, frm, obj_id in zip(
                     self.selected_points,
                     self.selected_labels,
-                    self.selected_point_frames
-                ) if frm == self.frame_index
+                    self.selected_point_frames,
+                    self.selected_point_obj_ids
+                ) if frm == self.frame_index and obj_id == self.cur_mask_idx
             ]
 
             if current_frame_points:
@@ -332,7 +345,14 @@ class VideoModeHandler:
                 labels_array = np.array([], dtype=np.int32)
 
             masks = self.get_sam_mask(self.frame_index, points_array, labels_array)
-            index_mask = self.make_index_mask(masks)
+
+            # Update cur_masks with the new mask for current object
+            # This preserves masks from other objects
+            for obj_id, mask in masks.items():
+                self.cur_masks[obj_id] = mask
+
+            # Generate index mask from all objects in cur_masks
+            index_mask = self.make_index_mask(self.cur_masks)
 
             # Update the tracked masks for this frame if we have tracked results
             if self.index_masks_all and 0 <= self.frame_index < len(self.index_masks_all):
@@ -358,11 +378,14 @@ class VideoModeHandler:
             return None, "Please select a frame first"
 
         try:
-            self.use_text_mode = True
-            self.video_predictor.handle_request(
-                request=dict(type="reset_session", session_id=self.inference_state)
-            )
-            self.cur_masks.clear()
+            # Only reset session if this is the first box prompt (switching from points mode)
+            first_box = self.cur_mask_idx == 0 and not self.box_prompts
+            if first_box:
+                self.use_text_mode = True
+                self.video_predictor.handle_request(
+                    request=dict(type="reset_session", session_id=self.inference_state)
+                )
+                self.cur_masks.clear()
 
             x1, y1, x2, y2 = box_coords
             h, w = self.image.shape[:2]
@@ -373,9 +396,11 @@ class VideoModeHandler:
             box_width = abs(x2 - x1) / w
             box_height = abs(y2 - y1) / h
 
-            # Save box prompt info for re-applying before tracking
-            self.current_box_prompt = [xmin, ymin, box_width, box_height]
-            self.box_prompt_frame_idx = frame_idx
+            # Save box prompt info for this object
+            self.box_prompts[self.cur_mask_idx] = {
+                "box": [xmin, ymin, box_width, box_height],
+                "frame_idx": frame_idx
+            }
 
             with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                 response = self.video_predictor.handle_request(
@@ -405,7 +430,7 @@ class VideoModeHandler:
 
                 if self.cur_masks:
                     index_mask = self.make_index_mask(self.cur_masks)
-                    return index_mask, f"Box prompt: detected {len(masks)} object(s)"
+                    return index_mask, f"Box prompt for object {self.cur_mask_idx}: detected {len(masks)} object(s)"
 
             return None, "No objects detected in box region"
         except Exception as e:
@@ -530,23 +555,41 @@ class VideoModeHandler:
             return None, "No objects detected yet."
 
         if not self.use_text_mode:
-            prompts_by_frame = {}
-            for pt, label, frame_idx in zip(
-                self.selected_points, self.selected_labels, self.selected_point_frames
+            # Group points by object and frame for multi-object tracking
+            prompts_by_obj_and_frame = {}  # {obj_id: {frame_idx: {"points": [], "labels": []}}}
+            for pt, label, frame_idx, obj_id in zip(
+                self.selected_points, self.selected_labels, self.selected_point_frames, self.selected_point_obj_ids
             ):
-                prompts_by_frame.setdefault(frame_idx, {"points": [], "labels": []})
-                prompts_by_frame[frame_idx]["points"].append(pt)
-                prompts_by_frame[frame_idx]["labels"].append(label)
-            if not prompts_by_frame:
+                if obj_id not in prompts_by_obj_and_frame:
+                    prompts_by_obj_and_frame[obj_id] = {}
+                if frame_idx not in prompts_by_obj_and_frame[obj_id]:
+                    prompts_by_obj_and_frame[obj_id][frame_idx] = {"points": [], "labels": []}
+                prompts_by_obj_and_frame[obj_id][frame_idx]["points"].append(pt)
+                prompts_by_obj_and_frame[obj_id][frame_idx]["labels"].append(label)
+
+            if not prompts_by_obj_and_frame:
                 return None, "No point prompt was applied. Click on the frame to add a point, then track."
 
+            guru.debug(f"Multi-object tracking: {len(prompts_by_obj_and_frame)} objects with prompts")
+            for obj_id, frames in prompts_by_obj_and_frame.items():
+                guru.debug(f"  Object {obj_id}: {len(frames)} frames with points")
+
             self.tracker.clear_all_points_in_video(self.tracker_state)
-            for frame_idx, prompts in prompts_by_frame.items():
-                self.get_sam_mask(
-                    frame_idx,
-                    np.array(prompts["points"], dtype=np.float32),
-                    np.array(prompts["labels"], dtype=np.int32),
-                )
+
+            # Add points for each object separately
+            for obj_id, frames in prompts_by_obj_and_frame.items():
+                for frame_idx, prompts in frames.items():
+                    # Temporarily set cur_mask_idx to the target object
+                    original_mask_idx = self.cur_mask_idx
+                    self.cur_mask_idx = obj_id
+                    try:
+                        self.get_sam_mask(
+                            frame_idx,
+                            np.array(prompts["points"], dtype=np.float32),
+                            np.array(prompts["labels"], dtype=np.int32),
+                        )
+                    finally:
+                        self.cur_mask_idx = original_mask_idx
 
             point_inputs = self.tracker_state.get("point_inputs_per_obj", {})
             num_prompted_frames = sum(len(v) for v in point_inputs.values())
@@ -570,41 +613,34 @@ class VideoModeHandler:
 
         if self.use_text_mode:
             try:
-                # Re-initialize SAM3 state with text/box prompt to ensure proper action_history
-                # SAM3 needs a fresh add_prompt before propagation to work correctly
+                # Re-initialize SAM3 state with text prompt to ensure proper action_history
+                # For box prompts, we DON'T re-add them because the initial detection
+                # already set up the tracking state with all detected objects
                 # We'll filter out removed objects when collecting results
                 kept_obj_ids = set(self.cur_masks.keys()) if self.cur_masks else set()
 
-                if self.current_text_prompt or self.current_box_prompt:
-                    guru.debug(f"Re-initializing SAM3 with prompt before tracking (keeping obj_ids: {kept_obj_ids})")
+                if self.current_text_prompt:
+                    guru.debug(f"Re-initializing SAM3 with text prompt before tracking (keeping obj_ids: {kept_obj_ids})")
                     self.video_predictor.handle_request(
                         request=dict(type="reset_session", session_id=self.inference_state)
                     )
 
                     with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-                        # Re-add the prompt to ensure proper action_history for propagation
-                        if self.current_text_prompt:
-                            self.video_predictor.handle_request(
-                                request=dict(
-                                    type="add_prompt",
-                                    session_id=self.inference_state,
-                                    frame_index=self.text_prompt_frame_idx,
-                                    text=self.current_text_prompt,
-                                )
+                        self.video_predictor.handle_request(
+                            request=dict(
+                                type="add_prompt",
+                                session_id=self.inference_state,
+                                frame_index=self.text_prompt_frame_idx,
+                                text=self.current_text_prompt,
                             )
-                            guru.debug(f"Re-initialized with text prompt")
-                        elif self.current_box_prompt:
-                            self.video_predictor.handle_request(
-                                request=dict(
-                                    type="add_prompt",
-                                    session_id=self.inference_state,
-                                    frame_index=self.box_prompt_frame_idx,
-                                    bounding_boxes=[self.current_box_prompt],
-                                    bounding_box_labels=[1],
-                                    obj_id=self.cur_mask_idx,
-                                )
-                            )
-                            guru.debug(f"Re-initialized with box prompt")
+                        )
+                        guru.debug(f"Re-initialized with text prompt")
+                elif self.box_prompts:
+                    # For box prompts, DON'T reset and re-add!
+                    # The initial box detection already set up the tracking state.
+                    # If we re-add the box, SAM3 might detect different objects.
+                    # Instead, we directly propagate using the existing inference state.
+                    guru.debug(f"Using existing box prompt detection state for tracking (keeping obj_ids: {kept_obj_ids})")
 
                 with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                     guru.debug(f"Starting stream request: session={self.inference_state}, direction={propagation_direction}")
