@@ -647,11 +647,13 @@ class VideoModeHandler:
 
                     with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                         # First add the "visual" text prompt to enable VG mode
+                        # Use the frame index from the first box prompt
+                        first_box_frame_idx = next(iter(self.box_prompts.values()))["frame_idx"]
                         self.video_predictor.handle_request(
                             request=dict(
                                 type="add_prompt",
                                 session_id=self.inference_state,
-                                frame_index=self.frame_index,
+                                frame_index=first_box_frame_idx,
                                 text="visual",
                             )
                         )
