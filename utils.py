@@ -170,3 +170,55 @@ def get_video_resolution(video_path):
     except Exception as e:
         print(f"Failed to get video resolution: {e}")
     return None
+
+
+def get_video_duration(video_path):
+    """Get the duration of a video file in seconds.
+
+    Args:
+        video_path: Path to the video file
+
+    Returns:
+        float: Duration in seconds, or None if detection fails
+    """
+    try:
+        cmd = [
+            "ffprobe",
+            "-v", "error",
+            "-show_entries", "format=duration",
+            "-of", "default=noprint_wrappers=1:nokey=1",
+            video_path
+        ]
+        result = subprocess.run(cmd, capture_output=True, text=True, check=True)
+        duration = float(result.stdout.strip())
+        return duration
+    except Exception as e:
+        print(f"Failed to get video duration: {e}")
+        return None
+
+
+def get_downsampling_choices(resolution):
+    """Generate downsampling choices for a video.
+
+    Args:
+        resolution: Tuple of (width, height) or None
+
+    Returns:
+        tuple: (choices_list, default_value)
+    """
+    if resolution:
+        width, height = resolution
+        original_label = f"Original ({width} * {height})"
+    else:
+        original_label = "Original (auto-detect)"
+
+    choices = [
+        original_label,
+        "Half",
+        "Quarter",
+        "Sixth",
+        "Eighth",
+        "Sixteenth"
+    ]
+
+    return choices, original_label

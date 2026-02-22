@@ -9,6 +9,8 @@ from loguru import logger as guru
 from utils import (
     first_or_none,
     frame_dir_path,
+    get_downsampling_choices,
+    get_video_duration,
     get_video_resolution,
     image_file_path,
     list_image_files,
@@ -57,7 +59,41 @@ def select_video(root_dir, seq_file, vid_name, img_name):
     return seq_name, vid_path, gr.update(value=selected_folder)
 
 
-def extract_video_frames(root_dir, vid_file, start, end, fps, height, vid_name, img_name):
+def select_video_with_metadata(root_dir, seq_file, vid_name, img_name):
+    """Select video and return metadata for UI updates."""
+    if not seq_file:
+        return (
+            None, None,
+            gr.update(value=None),
+            10.0,
+            ["Original (auto-detect)"],
+            "Original (auto-detect)"
+        )
+
+    seq_name = os.path.splitext(seq_file)[0]
+    vid_path = os.path.join(root_dir, vid_name, seq_file)
+
+    frame_folders = list_image_folders(os.path.join(root_dir, img_name))
+    selected_folder = seq_name if seq_name in frame_folders else None
+
+    duration = get_video_duration(vid_path)
+    if duration is None:
+        duration = 10.0
+
+    resolution = get_video_resolution(vid_path)
+    choices, default_choice = get_downsampling_choices(resolution)
+
+    return (
+        seq_name,
+        vid_path,
+        gr.update(value=selected_folder),
+        duration,
+        choices,
+        default_choice
+    )
+
+
+def extract_video_frames(root_dir, vid_file, start, end, fps, downsampling_choice, vid_name, img_name):
     if not vid_file:
         return None, None, gr.update(), "Please select a video first"
 
@@ -69,16 +105,29 @@ def extract_video_frames(root_dir, vid_file, start, end, fps, height, vid_name, 
         shutil.rmtree(out_dir)
     os.makedirs(out_dir, exist_ok=True)
 
-    # Auto-detect video original resolution if height is 0 or not specified
-    if not height or height <= 0:
-        resolution = get_video_resolution(vid_path)
-        if resolution:
-            width, original_height = resolution
-            height = original_height
-            guru.info(f"Auto-detected video resolution: {width}x{height}")
-        else:
-            height = 1024  # fallback to HD resolution
-            guru.warning("Failed to detect resolution, using default 1024")
+    # Calculate target height based on downsampling choice
+    resolution = get_video_resolution(vid_path)
+    if resolution:
+        width, original_height = resolution
+    else:
+        width, original_height = None, 1024
+        guru.warning("Failed to detect resolution, using default 1024")
+
+    # Parse downsampling choice and calculate height
+    if downsampling_choice.startswith("Original"):
+        height = original_height
+    elif downsampling_choice == "Half":
+        height = original_height // 2
+    elif downsampling_choice == "Quarter":
+        height = original_height // 4
+    elif downsampling_choice == "Sixth":
+        height = original_height // 6
+    elif downsampling_choice == "Eighth":
+        height = original_height // 8
+    elif downsampling_choice == "Sixteenth":
+        height = original_height // 16
+    else:
+        height = original_height
 
     def to_hms(seconds):
         t = int(seconds)

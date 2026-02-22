@@ -30,6 +30,7 @@ from ui_handlers import (
     refresh_video_sources,
     select_image_folder,
     select_video,
+    select_video_with_metadata,
     toggle_image_mode,
     toggle_video_prompt_type,
     update_mask_save_path,
@@ -118,7 +119,11 @@ def make_demo(
                             vid_start = gr.Number(0, label="Start (s)")
                             vid_end = gr.Number(10, label="End (s)")
                             vid_fps = gr.Number(30, label="FPS")
-                            vid_height = gr.Number(0, label="Height (0=auto)")
+                            vid_downsample = gr.Radio(
+                                choices=["Original (auto-detect)", "Half", "Quarter", "Sixth", "Eighth", "Sixteenth"],
+                                value="Original (auto-detect)",
+                                label="Downsampling"
+                            )
                         vid_extract_btn = gr.Button("Extract Frames")
 
                         gr.Markdown("---")
@@ -211,7 +216,7 @@ def make_demo(
                 vid_prompt_type.change(video_handler.set_prompt_type, [vid_prompt_type], [instruction])
 
                 refresh_video = partial(refresh_video_sources, vid_name=vid_name, img_name=img_name)
-                select_video_cb = partial(select_video, vid_name=vid_name, img_name=img_name)
+                select_video_cb = partial(select_video_with_metadata, vid_name=vid_name, img_name=img_name)
                 extract_frames = partial(extract_video_frames, vid_name=vid_name, img_name=img_name)
                 load_frames = partial(load_video_frames, img_name=img_name, video_handler=video_handler, mask_name=mask_name)
                 update_mask_path = partial(update_mask_save_path, mask_name=mask_name)
@@ -225,12 +230,12 @@ def make_demo(
                 vid_files_field.select(
                     select_video_cb,
                     [vid_root_dir, vid_files_field],
-                    [vid_seq_name, vid_preview, vid_img_dirs]
+                    [vid_seq_name, vid_preview, vid_img_dirs, vid_end, vid_downsample]
                 )
 
                 vid_extract_btn.click(
                     extract_frames,
-                    [vid_root_dir, vid_files_field, vid_start, vid_end, vid_fps, vid_height],
+                    [vid_root_dir, vid_files_field, vid_start, vid_end, vid_fps, vid_downsample],
                     [vid_seq_name, vid_img_dir_path, vid_img_dirs, instruction]
                 )
 
