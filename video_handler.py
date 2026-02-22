@@ -636,27 +636,40 @@ class VideoModeHandler:
                         )
                         guru.debug(f"Re-initialized with text prompt")
                 elif self.box_prompts:
-                    # For box prompts, DON'T reset and re-add!
-                    # The initial box detection already set up the tracking state.
-                    # If we re-add the box, SAM3 might detect different objects.
-                    # Instead, we directly propagate using the existing inference state.
-                    guru.debug(f"Using existing box prompt detection state for tracking (keeping obj_ids: {kept_obj_ids})")
-                    # Debug: check the SAM3 internal state
-                    session = self.video_predictor._get_session(self.inference_state)
-                    inf_state = session["state"]
-                    tracker_states = inf_state.get("tracker_inference_states", "MISSING")
-                    tracker_meta = inf_state.get("tracker_metadata", "MISSING")
-                    action_hist = inf_state.get("action_history", "MISSING")
-                    prev_stages = inf_state.get("previous_stages_out", "MISSING")
-                    if isinstance(tracker_states, list):
-                        guru.debug(f"  tracker_inference_states: {len(tracker_states)} items")
-                    if isinstance(tracker_meta, dict):
-                        guru.debug(f"  tracker_metadata: obj_ids_all_gpu={tracker_meta.get('obj_ids_all_gpu', 'N/A')}")
-                    if isinstance(action_hist, list):
-                        guru.debug(f"  action_history: {len(action_hist)} items")
-                    if isinstance(prev_stages, list):
-                        non_null = sum(1 for x in prev_stages if x is not None)
-                        guru.debug(f"  previous_stages_out: {non_null}/{len(prev_stages)} non-null")
+                    # For box prompts, we need to add a "visual" text prompt to enable
+                    # VG re-detection during propagation. Without a text prompt, the VG
+                    # model suppresses detections on all frames except the prompt frame,
+                    # and tracker propagation alone doesn't produce valid masks.
+                    guru.debug(f"Adding 'visual' text prompt for box-based tracking (keeping obj_ids: {kept_obj_ids})")
+                    self.video_predictor.handle_request(
+                        request=dict(type="reset_session", session_id=self.inference_state)
+                    )
+
+                    with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                        # First add the "visual" text prompt to enable VG mode
+                        self.video_predictor.handle_request(
+                            request=dict(
+                                type="add_prompt",
+                                session_id=self.inference_state,
+                                frame_index=self.frame_index,
+                                text="visual",
+                            )
+                        )
+                        # Then re-add all box prompts
+                        for obj_id, prompt_info in self.box_prompts.items():
+                            box = prompt_info["box"]
+                            frame_idx = prompt_info["frame_idx"]
+                            self.video_predictor.handle_request(
+                                request=dict(
+                                    type="add_prompt",
+                                    session_id=self.inference_state,
+                                    frame_index=frame_idx,
+                                    bounding_boxes=[[box[0], box[1], box[2], box[3]]],
+                                    bounding_box_labels=[1],
+                                    obj_id=obj_id,
+                                )
+                            )
+                        guru.debug(f"Re-initialized with 'visual' text + {len(self.box_prompts)} box prompt(s)")
 
                 with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
                     guru.debug(f"Starting stream request: session={self.inference_state}, direction={propagation_direction}")
