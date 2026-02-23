@@ -11,6 +11,9 @@ class _FakePredictor:
     def __init__(self, responses):
         self._responses = responses
 
+    def handle_request(self, request):
+        pass
+
     def handle_stream_request(self, request):
         assert request["type"] == "propagate_in_video"
         for response in self._responses:
@@ -56,6 +59,8 @@ def test_text_mode_tracker_keeps_video_length_when_most_frames_are_empty(monkeyp
 
     handler = video_handler_module.VideoModeHandler()
     handler.use_text_mode = True
+    handler.current_text_prompt = "a person"
+    handler.text_prompt_frame_idx = 0
     handler.cur_masks = {0: np.ones((4, 6), dtype=bool)}
     handler.inference_state = "session-1"
     handler.img_paths = img_paths
@@ -95,6 +100,8 @@ def test_text_mode_tracker_returns_error_when_no_masks_exist(monkeypatch, tmp_pa
 
     handler = video_handler_module.VideoModeHandler()
     handler.use_text_mode = True
+    handler.current_text_prompt = "a person"
+    handler.text_prompt_frame_idx = 0
     handler.cur_masks = {0: np.ones((4, 6), dtype=bool)}
     handler.inference_state = "session-2"
     handler.img_paths = img_paths

@@ -133,13 +133,19 @@ def colorize_masks(images, index_masks, fac: float = 0.5):
         return [], []
     max_idx = max(mask.max() for mask in index_masks)
     palette = get_hls_palette(max_idx + 1)
+    
+    # Pre-allocate output list
     color_masks = []
     out_frames = []
+    
     for img, mask in zip(images, index_masks):
         clr_mask = palette[mask.astype("int")]
         color_masks.append(clr_mask)
-        out_f = fac * img / 255 + (1 - fac) * clr_mask / 255
-        out_frames.append((255 * out_f).astype("uint8"))
+        
+        # Fast alpha blending via OpenCV
+        out_f = cv2.addWeighted(img, fac, clr_mask, 1.0 - fac, 0.0)
+        out_frames.append(out_f)
+        
     return out_frames, color_masks
 
 

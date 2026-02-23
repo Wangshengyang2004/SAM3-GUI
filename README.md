@@ -37,9 +37,26 @@ pip install -r requirements.txt
 
 **Note:** SAM3-GUI requires SAM3 to be installed first.
 
-### 3. HuggingFace Authentication (Optional)
+### 3. Download SAM3 Model
 
-If you need to access private checkpoints, authenticate with HuggingFace:
+Download the SAM3 model checkpoint using ModelScope:
+
+```bash
+# Install modelscope if not already installed
+pip install modelscope
+
+# Download the model (will be saved to ~/sam3/model/sam3.pt by default)
+python download_model.py
+
+# Or specify a custom output directory
+python download_model.py --output_dir /path/to/model/dir
+```
+
+The model will be downloaded from [ModelScope](https://www.modelscope.cn/models/facebook/sam3) and saved to `~/sam3/model/sam3.pt` by default.
+
+**Alternative: HuggingFace Authentication (Optional)**
+
+If you prefer to use HuggingFace or need to access private checkpoints:
 
 ```bash
 huggingface-cli login

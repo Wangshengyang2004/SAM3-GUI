@@ -81,11 +81,12 @@ class VideoModeHandler:
     def _resize_mask(self, mask, target_h, target_w):
         if mask.shape[0] == target_h and mask.shape[1] == target_w:
             return mask
+        # cv2.resize works faster on uint8 natively without true bool casts
         return cv2.resize(
-            mask.astype(np.uint8),
+            mask.astype(np.uint8, copy=False),
             (target_w, target_h),
             interpolation=cv2.INTER_NEAREST,
-        ).astype(bool)
+        )
 
     def _normalize_points(self, points):
         if self.image is None:
@@ -110,13 +111,18 @@ class VideoModeHandler:
             # Fallback if mask doesn't have shape (shouldn't happen)
             mask_shape = (self.image.shape[0], self.image.shape[1]) if self.image is not None else (1, 1)
 
-        idx_mask = np.zeros(mask_shape, dtype="uint8")
-        for i in idcs:
+        idx_mask = np.zeros(mask_shape, dtype=np.uint8)
+        # Reversing order lets foreground IDs overwrite accurately
+        # assuming we want idcs in typical stable order
+        for i in sorted(masks.keys()):
             mask = masks[i]
-            # Ensure mask is boolean or can be used for indexing
+            # Direct np.where or bool indexing without creating copies
             if mask.dtype != bool:
-                mask = mask > 0
-            idx_mask[mask] = int(i) + 1  # Ensure i is int
+                # Thresholding directly if uint8
+                idx_mask[mask > 0] = int(i) + 1
+            else:
+                idx_mask[mask] = int(i) + 1
+        
         guru.debug(f"make_index_mask: {len(idcs)} objects, mask max={idx_mask.max()}, shape={idx_mask.shape}")
         return idx_mask
 
@@ -612,14 +618,16 @@ class VideoModeHandler:
         frames_with_masks = 0
 
         if self.use_text_mode:
-            try:
-                # Re-initialize SAM3 state with text prompt to ensure proper action_history
-                # For box prompts, we DON'T re-add them because the initial detection
-                # already set up the tracking state with all detected objects
-                # We'll filter out removed objects when collecting results
-                kept_obj_ids = set(self.cur_masks.keys()) if self.cur_masks else set()
+            # Re-initialize SAM3 state with text prompt to ensure proper action_history
+            # For box prompts, we DON'T re-add them because the initial detection
+            # already set up the tracking state with all detected objects
+            # We'll filter out removed objects when collecting results
+            kept_obj_ids = set(self.cur_masks.keys()) if self.cur_masks else set()
 
-                if self.current_text_prompt:
+            run_vg_propagation = self.current_text_prompt is not None
+
+            if run_vg_propagation:
+                try:
                     guru.debug(f"Re-initializing SAM3 with text prompt before tracking (keeping obj_ids: {kept_obj_ids})")
                     self.video_predictor.handle_request(
                         request=dict(type="reset_session", session_id=self.inference_state)
@@ -635,86 +643,121 @@ class VideoModeHandler:
                             )
                         )
                         guru.debug(f"Re-initialized with text prompt")
-                elif self.box_prompts:
-                    # For box prompts, we need to add a "visual" text prompt to enable
-                    # VG re-detection during propagation. Without a text prompt, the VG
-                    # model suppresses detections on all frames except the prompt frame,
-                    # and tracker propagation alone doesn't produce valid masks.
-                    guru.debug(f"Adding 'visual' text prompt for box-based tracking (keeping obj_ids: {kept_obj_ids})")
-                    self.video_predictor.handle_request(
-                        request=dict(type="reset_session", session_id=self.inference_state)
-                    )
 
                     with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-                        # First add the "visual" text prompt to enable VG mode
-                        # Use the frame index from the first box prompt
-                        first_box_frame_idx = next(iter(self.box_prompts.values()))["frame_idx"]
-                        self.video_predictor.handle_request(
+                        guru.debug(f"Starting stream request: session={self.inference_state}, direction={propagation_direction}")
+                        response_stream = self.video_predictor.handle_stream_request(
                             request=dict(
-                                type="add_prompt",
+                                type="propagate_in_video",
                                 session_id=self.inference_state,
-                                frame_index=first_box_frame_idx,
-                                text="visual",
+                                propagation_direction=propagation_direction,
                             )
                         )
-                        # Then re-add all box prompts
-                        for obj_id, prompt_info in self.box_prompts.items():
-                            box = prompt_info["box"]
-                            frame_idx = prompt_info["frame_idx"]
-                            self.video_predictor.handle_request(
-                                request=dict(
-                                    type="add_prompt",
-                                    session_id=self.inference_state,
-                                    frame_index=frame_idx,
-                                    bounding_boxes=[[box[0], box[1], box[2], box[3]]],
-                                    bounding_box_labels=[1],
-                                    obj_id=obj_id,
-                                )
-                            )
-                        guru.debug(f"Re-initialized with 'visual' text + {len(self.box_prompts)} box prompt(s)")
-
-                with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
-                    guru.debug(f"Starting stream request: session={self.inference_state}, direction={propagation_direction}")
-                    response_stream = self.video_predictor.handle_stream_request(
-                        request=dict(
-                            type="propagate_in_video",
-                            session_id=self.inference_state,
-                            propagation_direction=propagation_direction,
-                        )
-                    )
-                    frame_count = 0
-                    null_output_count = 0
-                    for result in response_stream:
-                        frame_count += 1
-                        out_frame_idx = result.get("frame_index")
-                        outputs = result.get("outputs")
-                        if outputs is None:
-                            null_output_count += 1
-                            continue
-                        masks_list = outputs.get("out_binary_masks", [])
-                        out_obj_ids = outputs.get("out_obj_ids", [])
-                        if frame_count <= 5 or frame_count % 50 == 0:
-                            guru.debug(f"Stream frame {frame_count}: idx={out_frame_idx}, masks={len(masks_list)}, obj_ids={list(out_obj_ids)}")
-                        masks = {}
-                        for i, obj_id in enumerate(out_obj_ids):
-                            # Filter: only keep objects that user hasn't removed
-                            if kept_obj_ids and obj_id not in kept_obj_ids:
+                        frame_count = 0
+                        null_output_count = 0
+                        for result in response_stream:
+                            frame_count += 1
+                            out_frame_idx = result.get("frame_index")
+                            outputs = result.get("outputs")
+                            if outputs is None:
+                                null_output_count += 1
                                 continue
-                            if i < len(masks_list):
-                                masks[obj_id] = masks_list[i]
-                        if out_frame_idx is None:
+                            masks_list = outputs.get("out_binary_masks", [])
+                            out_obj_ids = outputs.get("out_obj_ids", [])
+                            if frame_count <= 5 or frame_count % 50 == 0:
+                                guru.debug(f"Stream frame {frame_count}: idx={out_frame_idx}, masks={len(masks_list)}, obj_ids={list(out_obj_ids)}")
+                            masks = {}
+                            for i, obj_id in enumerate(out_obj_ids):
+                                # Filter: only keep objects that user hasn't removed
+                                if kept_obj_ids and obj_id not in kept_obj_ids:
+                                    continue
+                                if i < len(masks_list):
+                                    masks[obj_id] = masks_list[i]
+                            if out_frame_idx is None:
+                                continue
+                            out_frame_idx = int(out_frame_idx)
+                            if 0 <= out_frame_idx < len(images):
+                                video_segments[out_frame_idx] = masks
+                                if masks:
+                                    frames_with_masks += 1
+                        guru.debug(f"Stream complete: {frame_count} frames received, {null_output_count} null outputs, {len(video_segments)} segments")
+                except Exception as e:
+                    guru.error(f"Text mode tracking error: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    return None, f"Tracking failed: {e}"
+            else:
+                try:
+                    # Fallback to points-based Tracker propagation for box-only prompts
+                    guru.debug("Running mask-based tracker propagation for box prompts")
+                    if not self._init_tracker_state():
+                        return None, "Points mode unavailable right now."
+
+                    self.tracker.clear_all_points_in_video(self.tracker_state)
+
+                    # Feed cached high-quality masks straight into the tracker
+                    for obj_id, mask_np in self.cur_masks.items():
+                        if obj_id not in kept_obj_ids:
                             continue
-                        out_frame_idx = int(out_frame_idx)
-                        if 0 <= out_frame_idx < len(images):
-                            video_segments[out_frame_idx] = masks
-                            if masks:
-                                frames_with_masks += 1
-                    guru.debug(f"Stream complete: {frame_count} frames received, {null_output_count} null outputs, {len(video_segments)} segments")
-            except Exception as e:
-                guru.error(f"Text mode tracking error: {e}")
-                import traceback
-                traceback.print_exc()
-                return None, f"Tracking failed: {e}"
+                        
+                        # Find the appropriate frame_idx for this mask
+                        if obj_id in self.box_prompts:
+                            frame_idx = self.box_prompts[obj_id]["frame_idx"]
+                        else:
+                            frame_idx = next(iter(self.box_prompts.values()))["frame_idx"]
+
+                        mask_t = torch.from_numpy(mask_np)
+
+                        # ensure mask is boolean
+                        if mask_t.dtype != torch.bool:
+                            mask_t = mask_t > 0
+
+                        with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                            self.tracker.add_new_mask(
+                                inference_state=self.tracker_state,
+                                frame_idx=frame_idx,
+                                obj_id=obj_id,
+                                mask=mask_t
+                            )
+                    
+                    directions_to_run = []
+                    if propagation_direction == "forward":
+                        directions_to_run = [False]
+                    elif propagation_direction == "backward":
+                        directions_to_run = [True]
+                    else:  # both
+                        directions_to_run = [False, True]
+
+                    with torch.autocast(device_type="cuda", dtype=torch.bfloat16):
+                        for reverse in directions_to_run:
+                            for frame_idx, obj_ids, _, video_res_masks, _ in self.tracker.propagate_in_video(
+                                self.tracker_state,
+                                start_frame_idx=0,
+                                max_frame_num_to_track=num_frames_to_track,
+                                reverse=reverse,
+                                propagate_preflight=True,
+                            ):
+                                masks = {}
+                                for i, obj_id in enumerate(obj_ids):
+                                    if video_res_masks is not None and i < len(video_res_masks):
+                                        masks[obj_id] = (video_res_masks[i] > 0.0).cpu().numpy().squeeze()
+                                if frame_idx is None:
+                                    continue
+                                frame_idx = int(frame_idx)
+                                if 0 <= frame_idx < len(images):
+                                    video_segments[frame_idx] = masks
+                                    if masks:
+                                        frames_with_masks += 1
+                except RuntimeError as e:
+                    msg = str(e)
+                    if "No points are provided" in msg:
+                        return None, "No point prompt was applied. Click on the frame to add a point, then track."
+                    guru.error(f"Tracker runtime error: {msg}")
+                    import traceback
+                    traceback.print_exc()
+                    return None, f"Tracking failed: {msg}"
+
+
         else:
             try:
                 # Handle propagation direction for points mode
@@ -766,8 +809,11 @@ class VideoModeHandler:
             f"frames_with_masks: {frames_with_masks}, images: {len(images)}"
         )
 
-        self.index_masks_all = []
-        for frame_idx, img in enumerate(images):
+        import concurrent.futures
+
+        self.index_masks_all = [None] * len(images)
+        
+        def process_frame(frame_idx, img):
             target_h, target_w = img.shape[:2]
             masks_dict = video_segments.get(frame_idx, {})
             if masks_dict:
@@ -778,9 +824,19 @@ class VideoModeHandler:
                 idx_mask = self.make_index_mask(resized_masks)
             else:
                 idx_mask = np.zeros((target_h, target_w), dtype="uint8")
-            self.index_masks_all.append(idx_mask)
-            if masks_dict:
-                guru.debug(f"Frame {frame_idx}: mask shape {idx_mask.shape}, max {idx_mask.max()}")
+            return frame_idx, idx_mask, bool(masks_dict)
+
+        # Optimize mask resizing loop using ThreadPool (I/O & CPU bound resize)
+        with concurrent.futures.ThreadPoolExecutor() as executor:
+            futures = [
+                executor.submit(process_frame, i, img) 
+                for i, img in enumerate(images)
+            ]
+            for future in concurrent.futures.as_completed(futures):
+                idx, idx_mask, has_masks = future.result()
+                self.index_masks_all[idx] = idx_mask
+                if has_masks:
+                    guru.debug(f"Frame {idx}: mask shape {idx_mask.shape}, max {idx_mask.max()}")
 
         guru.debug(f"Total index_masks: {len(self.index_masks_all)}, images: {len(images)}")
         out_frames, self.color_masks_all = colorize_masks(images, self.index_masks_all)
