@@ -197,25 +197,6 @@ Single image segmentation with three modes:
 2. Click on the image to place points
 3. Use "Remove Point by Index" to delete specific points
 
-## Tips for Best Results
-
-### Text Prompting
-- **Be specific**: "person in red shirt" works better than "person"
-- **Use simple descriptions**: Common nouns work best (person, car, dog)
-- **Try variations**: If "car" doesn't work, try "vehicle" or "automobile"
-
-### Point Clicking
-- Use positive points (green) on the object to segment
-- Use negative points (red) on background or other objects
-- Start with 1-3 positive points, add negatives as needed
-- **Important**: Click on the **Output Image** (right side) when adding multiple points
-
-### Multi-Object Tracking
-1. Segment your first object (text/point/box)
-2. Click "Add New Mask" to increment mask index
-3. Segment the second object
-4. Click "Track All Frames" to track all objects together
-
 ## Acknowledgments
 
 The app is modified based on [shape-of-motion](https://github.com/vye16/shape-of-motion/), upgraded from SAM2 to SAM3 with text prompting support.
