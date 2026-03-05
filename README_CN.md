@@ -20,6 +20,7 @@
 - Python 3.12 或更高版本
 - PyTorch 2.7 或更高版本
 - 支持 CUDA 的 GPU，CUDA 12.6 或更高版本
+- **FFmpeg**（视频处理必需）：通过 `sudo apt-get install ffmpeg` (Ubuntu/Debian) 或 `brew install ffmpeg` (macOS) 安装
 
 ### 1. 安装 SAM3
 

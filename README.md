@@ -20,6 +20,7 @@ A GUI tool for **SAM3** (Segment Anything with Concepts) video and image segment
 - Python 3.12 or higher
 - PyTorch 2.7 or higher
 - CUDA-compatible GPU with CUDA 12.6 or higher
+- **FFmpeg** (required for video processing): Install via `sudo apt-get install ffmpeg` (Ubuntu/Debian) or `brew install ffmpeg` (macOS)
 
 ### 1. Install SAM3
 
