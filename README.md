@@ -6,14 +6,12 @@ A GUI tool for **SAM3** (Segment Anything with Concepts) video and image segment
 
 ## Key Features
 
+- **Native SAM3 Support**: Built on SAM3 with full API compatibility
 - **Text Prompting**: Segment objects using natural language (e.g., "person", "car", "red shoe")
 - **Point Clicking**: Interactive refinement with positive/negative points
 - **Box Prompts**: Draw bounding boxes to segment objects
 - **Video Tracking**: Multi-object tracking across video frames with propagation directions
 - **Multi-Object Management**: Track multiple objects independently with "Add New Mask"
-- **Open-Vocabulary**: Detect 4M+ different object types
-- **Frame-Specific Points**: Points only appear on their designated frames
-- **Auto-Download**: SAM3 model automatically downloads from HuggingFace
 
 ## Installation
 
@@ -201,4 +199,6 @@ Single image segmentation with three modes:
 
 The app is modified based on [shape-of-motion](https://github.com/vye16/shape-of-motion/), upgraded from SAM2 to SAM3 with text prompting support.
 
-![gradio interface](asset/gradio_interface.png)
+![SAM3 GUI Video Mode](asset/sam3_1.png)
+
+![SAM3 GUI Image Mode](asset/sam3_2.png)

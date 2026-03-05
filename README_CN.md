@@ -6,14 +6,12 @@
 
 ## 主要功能
 
+- **原生 SAM3 支持**: 基于 SAM3 构建，完全兼容 SAM3 API
 - **文本提示**: 使用自然语言描述分割对象（例如"人"、"汽车"、"红鞋子"）
 - **点选交互**: 使用正/负样本点进行交互式优化
 - **框选提示**: 绘制边界框来分割对象
 - **视频追踪**: 跨视频帧的多对象追踪，支持传播方向设置
 - **多对象管理**: 使用"添加新掩码"功能独立追踪多个对象
-- **开放词汇**: 可检测 400 万+ 不同类型的对象
-- **帧特定点**: 点仅出现在其指定的帧上
-- **自动下载**: SAM3 模型自动从 HuggingFace 下载
 
 ## 安装
 
@@ -201,4 +199,6 @@ data_root/
 
 本应用基于 [shape-of-motion](https://github.com/vye16/shape-of-motion/) 修改，从 SAM2 升级到 SAM3 并添加了文本提示支持。
 
-![gradio interface](asset/gradio_interface.png)
+![SAM3 GUI 视频模式](asset/sam3_1.png)
+
+![SAM3 GUI 图像模式](asset/sam3_2.png)
