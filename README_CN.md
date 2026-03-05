@@ -17,17 +17,37 @@
 
 ## 安装
 
+### 环境要求
+
+- Python 3.12 或更高版本
+- PyTorch 2.7 或更高版本
+- 支持 CUDA 的 GPU，CUDA 12.6 或更高版本
+
 ### 1. 安装 SAM3
 
 首先，安装 [SAM3](https://github.com/facebookresearch/sam3)：
 
 ```bash
-# 安装带 CUDA 支持的 PyTorch
-pip install torch>=2.7.0 torchvision --index-url https://download.pytorch.org/whl/cu126
+# 创建新的 Conda 环境
+conda create -n sam3 python=3.12
+conda activate sam3
 
-# 安装 SAM3
-cd /path/to/sam3
+# 安装带 CUDA 支持的 PyTorch
+pip install torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+
+**Blackwell RTX 50X0 GPU 用户注意：** 这些 GPU 需要从源码编译 torchvision，因为目前尚无预编译的 wheel 包。
+
+# 克隆仓库并安装包
+git clone https://github.com/facebookresearch/sam3.git
+cd sam3
 pip install -e .
+
+# 可选：安装示例笔记本或开发的额外依赖
+# 用于运行示例笔记本
+pip install -e ".[notebooks]"
+
+# 用于开发
+pip install -e ".[train,dev]"
 ```
 
 ### 2. 安装 GUI 依赖
@@ -195,48 +215,6 @@ data_root/
 2. 点击"添加新掩码"增加掩码索引
 3. 分割第二个对象
 4. 点击"追踪所有帧"同时追踪所有对象
-
-## 故障排除
-
-### 模型下载问题
-
-SAM3 自动从 HuggingFace 下载。如果遇到问题：
-
-```bash
-# 检查 HuggingFace 连接
-huggingface-cli whoami
-
-# 对于私有检查点，确保你有访问权限
-# 并使用 huggingface-cli login 登录
-```
-
-### CUDA 内存不足
-
-如果 GPU 内存不足：
-
-```bash
-# 使用较小的批次大小或一次处理较少的帧
-# 考虑从视频中提取较少的帧
-```
-
-### 文本提示不起作用
-
-1. 确保已先加载帧
-2. 尝试更简单或更常见的描述
-3. 检查对象在当前帧中是否清晰可见
-4. 对于困难情况，结合使用点选
-
-### 点无法记住
-
-- 点是帧特定的 - 每个帧有自己的点集
-- 使用"已添加点"表格查看所有帧上的所有点
-- 切换帧时，仅显示该帧的点
-
-### 数据类型不匹配错误
-
-如果看到"mat1 and mat2 must have the same dtype"错误：
-- 确保你使用的是带 CUDA 支持的 PyTorch
-- 代码现在自动处理 BFloat16/Float32 数据类型不匹配
 
 ## 致谢
 

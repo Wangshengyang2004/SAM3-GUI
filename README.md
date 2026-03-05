@@ -17,17 +17,37 @@ A GUI tool for **SAM3** (Segment Anything with Concepts) video and image segment
 
 ## Installation
 
+### Prerequisites
+
+- Python 3.12 or higher
+- PyTorch 2.7 or higher
+- CUDA-compatible GPU with CUDA 12.6 or higher
+
 ### 1. Install SAM3
 
 First, install [SAM3](https://github.com/facebookresearch/sam3):
 
 ```bash
-# Install PyTorch with CUDA support
-pip install torch>=2.7.0 torchvision --index-url https://download.pytorch.org/whl/cu126
+# Create a new Conda environment
+conda create -n sam3 python=3.12
+conda activate sam3
 
-# Install SAM3
-cd /path/to/sam3
+# Install PyTorch with CUDA support
+pip install torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+
+**Note for Blackwell RTX 50X0 GPUs:** These GPUs require torchvision to be compiled from source as pre-built wheels are not yet available.
+
+# Clone the repository and install the package
+git clone https://github.com/facebookresearch/sam3.git
+cd sam3
 pip install -e .
+
+# Optional: Install additional dependencies for example notebooks or development
+# For running example notebooks
+pip install -e ".[notebooks]"
+
+# For development
+pip install -e ".[train,dev]"
 ```
 
 ### 2. Install GUI Dependencies
@@ -195,48 +215,6 @@ Single image segmentation with three modes:
 2. Click "Add New Mask" to increment mask index
 3. Segment the second object
 4. Click "Track All Frames" to track all objects together
-
-## Troubleshooting
-
-### Model Download Issues
-
-SAM3 auto-downloads from HuggingFace. If you encounter issues:
-
-```bash
-# Check HuggingFace connection
-huggingface-cli whoami
-
-# For private checkpoints, ensure you have access
-# and are logged in with huggingface-cli login
-```
-
-### CUDA Out of Memory
-
-If you run out of GPU memory:
-
-```bash
-# Use a smaller batch size or process fewer frames at once
-# Consider extracting fewer frames from your video
-```
-
-### Text Prompt Not Working
-
-1. Ensure frames are loaded first
-2. Try simpler or more common descriptions
-3. Check that the object is clearly visible in the current frame
-4. Combine with point clicks for difficult cases
-
-### Points Not Remembering
-
-- Points are frame-specific - each frame has its own set of points
-- Use the "Added Points" table to see all points across all frames
-- When switching frames, only points for that frame are displayed
-
-### Dtype Mismatch Error
-
-If you see "mat1 and mat2 must have the same dtype" errors:
-- Ensure you're using PyTorch with CUDA support
-- The code now handles BFloat16/Float32 dtype mismatches automatically
 
 ## Acknowledgments
 
