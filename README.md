@@ -1,5 +1,7 @@
 # GUI for SAM3
 
+**English** | [简体中文](README_CN.md)
+
 A GUI tool for **SAM3** (Segment Anything with Concepts) video and image segmentation with **open-vocabulary text prompting** support.
 
 ## Key Features
