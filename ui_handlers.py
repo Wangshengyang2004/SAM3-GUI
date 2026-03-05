@@ -66,8 +66,8 @@ def select_video_with_metadata(root_dir, seq_file, vid_name, img_name):
             None, None,
             gr.update(value=None),
             10.0,
-            ["Original (auto-detect)"],
-            "Original (auto-detect)"
+            ["Original"],
+            "Original"
         )
 
     seq_name = os.path.splitext(seq_file)[0]

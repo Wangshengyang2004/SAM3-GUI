@@ -35,13 +35,7 @@ def get_mask_centers(img, mask):
         main_contours = [contours[i] for i in sorted_indices]
         
         for cnt in main_contours:
-            # 获取轮廓的边界框
-            x, y, w, h = cv2.boundingRect(cnt)
-            # 提取轮廓内的像素
-            mask_single = np.zeros(mask.shape, dtype=np.uint8)
-            cv2.fillPoly(mask_single, [cnt], 255)
-            masked_pixels = img[mask_single > 0]
-            
+            # 提取轮廓内的像素 (removed unused masked_pixels array creation)
             # 计算重心
             M = cv2.moments(cnt)
             if M["m00"] == 0:
@@ -96,8 +90,8 @@ def draw_lines(img,mask, points):
         else:
             color = (int(c[0]), int(c[1]), int(c[2]))
         cv2.line(img, (sx, sy), (ex, ey), color, thickness, lineType=cv2.LINE_AA)
-        # mask 仍然画成 1
-        cv2.line(mask, (sx, sy), (ex, ey), (1.0), thickness, lineType=cv2.LINE_AA)
+        # mask 仍然画成 1, mask is a 2D array or 3D, pass scalar 1
+        cv2.line(mask, (sx, sy), (ex, ey), 1, thickness, lineType=cv2.LINE_AA)
 
     return img
 
@@ -168,7 +162,7 @@ def get_video_frames(video_path, indices):
     Load frames from image directory instead of video file
     video_path: path relative to data_root/images/
     """
-    base_path = "/home/wsy/SAM3-GUI/data_root/images"
+    base_path = "/home/simonwsy/SAM3-GUI/data_root/images"
     full_path = f"{base_path}/{video_path}"
 
     frames = []
@@ -188,7 +182,7 @@ def get_masks(name, indices):
     Load masks from data_root/masks directory
     name: path relative to data_root/masks/
     """
-    base_path = "/home/wsy/SAM3-GUI/data_root/masks"
+    base_path = "/home/simonwsy/SAM3-GUI/data_root/masks"
     masks = []
     for i in indices:
         mask = np.load(f"{base_path}/{name}/{str(i).zfill(5)}.npy")
@@ -231,7 +225,7 @@ def get_background(name, back):
     if back is None:
         return None
     # Try loading from images directory
-    img = cv2.imread(f"/home/wsy/SAM3-GUI/data_root/images/{name}/{back}")
+    img = cv2.imread(f"/home/simonwsy/SAM3-GUI/data_root/images/{name}/{back}")
     if img is None:
         print(f"Warning: Could not load background {back}")
     return img
@@ -291,25 +285,19 @@ def merge_masked_images(images, masks, background=None):
     
     for idx in (range(len(images))):  # TODO if transparency is not inversed
         
-        img = images[idx].astype(np.float32)
-        mask = masks[idx] #np.clip(masks[idx], None ,1) # Normalize mask to [0, 1]
+        img = np.ascontiguousarray(images[idx].astype(np.float32))
+        mask = masks[idx].copy() # Ensure contiguous and independent
         # centers = get_mask_centers(masks[idx])
         centers = get_mask_centers(img,mask)
 
-        mask = np.expand_dims(mask, axis=-1)  # Add a channel dimension to match (H, W, 1)
-
-        # Make the masked region transparent by reducing alpha channel
-        # transparent_layer = img * mask
-        # transparent_layer[..., 3] *= (idx + 1) / len(images)  # Gradual transparency
         trans = transparent_factors[idx]
-        # if inverse_transparency:
-        #     # trans = (1-(idx + 1) / len(images)) ** transparent_factor_max
-        #     trans = transparent_factors[len(images) - 1 - idx]
         print(f"Frame {idx}: transparency factor {trans}")
         if len(centers)>= 2 and idx % 1 == 0:
             if idx >= len(images) - 4 or idx in r_id:
                 centers = list(reversed(centers))
-            draw_lines(img, mask,centers)
+            draw_lines(img, mask, centers)
+
+        mask = np.expand_dims(mask, axis=-1)  # Add a channel dimension to match (H, W, 1)
         
         mask = np.clip(mask, None ,1) # Normalize mask to [0, 1]
         new = mask * mix_factor
@@ -349,7 +337,7 @@ def main():
 
     # Configure for Cam1_color data
     # You can adjust start, interval, end as needed
-    h = Config(start=1, interval=3, end=150, name="Cam1_color")
+    h = Config(start=1, interval=3, end=361, name="Sky_color")
 
     print(f"Processing frames {h.start} to {h.end} with interval {h.interval}")
     merge(h)

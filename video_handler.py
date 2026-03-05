@@ -384,14 +384,29 @@ class VideoModeHandler:
             return None, "Please select a frame first"
 
         try:
-            # Only reset session if this is the first box prompt (switching from points mode)
-            first_box = self.cur_mask_idx == 0 and not self.box_prompts
-            if first_box:
-                self.use_text_mode = True
-                self.video_predictor.handle_request(
-                    request=dict(type="reset_session", session_id=self.inference_state)
-                )
+            # Single box mode: clear previous box and masks when drawing a new box
+            if self.box_prompts:
+                # Remove existing objects from SAM3 session to free GPU memory
+                for obj_id in list(self.box_prompts.keys()):
+                    try:
+                        self.video_predictor.handle_request(
+                            request=dict(
+                                type="remove_object",
+                                session_id=self.inference_state,
+                                obj_id=obj_id,
+                            )
+                        )
+                    except AssertionError:
+                        pass  # Object may not be registered in SAM3
+                self.box_prompts.clear()
                 self.cur_masks.clear()
+                self.cur_mask_idx = 0
+
+            # Reset session for clean state
+            self.use_text_mode = True
+            self.video_predictor.handle_request(
+                request=dict(type="reset_session", session_id=self.inference_state)
+            )
 
             x1, y1, x2, y2 = box_coords
             h, w = self.image.shape[:2]
@@ -432,11 +447,11 @@ class VideoModeHandler:
                         mask_array = np.array(masks[i])
                         self.cur_masks[int(obj_id)] = self._resize_mask(mask_array, target_h, target_w).copy()
 
-                guru.debug(f"After box prompt: cur_masks keys={list(self.cur_masks.keys())}, use_text_mode={self.use_text_mode}")
+                guru.debug(f"After box prompt: cur_masks keys={list(self.cur_masks.keys())}")
 
                 if self.cur_masks:
                     index_mask = self.make_index_mask(self.cur_masks)
-                    return index_mask, f"Box prompt for object {self.cur_mask_idx}: detected {len(masks)} object(s)"
+                    return index_mask, f"Box prompt: detected {len(masks)} object(s)"
 
             return None, "No objects detected in box region"
         except Exception as e:

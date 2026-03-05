@@ -216,7 +216,7 @@ def get_downsampling_choices(resolution):
         width, height = resolution
         original_label = f"Original ({width} * {height})"
     else:
-        original_label = "Original (auto-detect)"
+        original_label = "Original"
 
     choices = [
         original_label,

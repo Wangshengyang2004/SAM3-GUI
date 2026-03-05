@@ -120,8 +120,8 @@ def make_demo(
                             vid_end = gr.Number(10, label="End (s)")
                             vid_fps = gr.Number(30, label="FPS")
                             vid_downsample = gr.Radio(
-                                choices=["Original (auto-detect)", "Half", "Quarter", "Sixth", "Eighth", "Sixteenth"],
-                                value="Original (auto-detect)",
+                                choices=["Original", "Half", "Quarter", "Sixth", "Eighth", "Sixteenth"],
+                                value="Original",
                                 label="Downsampling"
                             )
                         vid_extract_btn = gr.Button("Extract Frames")
@@ -318,6 +318,8 @@ def make_demo(
                         index_mask, msg = video_handler.add_box_prompt(frame_idx, box_coords)
                         obj_ids = list(video_handler.cur_masks.keys())
                         dropdown = gr.Dropdown(choices=[str(i) for i in obj_ids])
+                        if index_mask is None:
+                            return base_img, msg, None, [], dropdown
                         palette = get_hls_palette(index_mask.max() + 1)
                         color_mask = palette[index_mask]
                         out_u = compose_img_mask(base_img, color_mask)
