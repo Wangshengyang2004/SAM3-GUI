@@ -188,3 +188,4 @@ mask_output.npy
 
 # Logs
 *.log
+output/
