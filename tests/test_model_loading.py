@@ -1,7 +1,7 @@
 """
 Tests for SAM3 model loading functionality.
 
-Corresponds to: mask_app.py -> PromptGUI.init_sam_model()
+Corresponds to: native SAM3.1 predictor loading.
 """
 
 import pytest

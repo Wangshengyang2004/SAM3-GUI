@@ -1,7 +1,7 @@
 """
 Tests for SAM3 prompting functionality.
 
-Corresponds to: mask_app.py -> PromptGUI.add_text_prompt(), add_point(), get_sam_mask()
+Corresponds to: native SAM3.1 prompt requests.
 """
 
 import numpy as np

@@ -49,10 +49,6 @@ from utils import (
     list_video_files,
 )
 
-# Backward compatibility for older tests/integrations that import PromptGUI.
-PromptGUI = VideoModeHandler
-
-
 # =============================================================================
 # Main Demo with Tabs
 # =============================================================================
@@ -64,10 +60,11 @@ def make_demo(
     vid_name: str = DEFAULT_VID_NAME,
     img_name: str = DEFAULT_IMG_NAME,
     mask_name: str = DEFAULT_MASK_NAME,
+    backend=None,
 ):
     # Initialize handlers (models are lazy-loaded)
-    video_handler = VideoModeHandler(checkpoint_path=checkpoint_path, gpus_to_use=gpus_to_use)
-    image_handler = ImageModeHandler(checkpoint_path=checkpoint_path)
+    video_handler = VideoModeHandler(checkpoint_path=checkpoint_path, gpus_to_use=gpus_to_use, backend=backend)
+    image_handler = ImageModeHandler(checkpoint_path=checkpoint_path, backend=backend)
     
     vid_root = os.path.join(root_dir, vid_name)
     img_root = os.path.join(root_dir, img_name)
@@ -84,8 +81,8 @@ def make_demo(
     initial_image_file = first_or_none(initial_image_files)
     initial_image_path = image_file_path(root_dir, img_name, initial_image_folder, initial_image_file)
     
-    with gr.Blocks(title="SAM3 Segmentation") as demo:
-        gr.Markdown("# SAM3 Segmentation Tool")
+    with gr.Blocks(title="SAM3.1 Segmentation") as demo:
+        gr.Markdown("# SAM3.1 Segmentation Tool")
         instruction = gr.Textbox("Select a mode (Video or Image) to get started.", label="Status", interactive=False)
         
         with gr.Tabs():
@@ -319,7 +316,7 @@ def make_demo(
                         obj_ids = list(video_handler.cur_masks.keys())
                         dropdown = gr.Dropdown(choices=[str(i) for i in obj_ids])
                         if index_mask is None:
-                            return base_img, msg, None, [], dropdown
+                            return preview, msg, None, [], dropdown
                         palette = get_hls_palette(index_mask.max() + 1)
                         color_mask = palette[index_mask]
                         out_u = compose_img_mask(base_img, color_mask)
@@ -333,6 +330,8 @@ def make_demo(
                         index_mask = video_handler.add_point(int(frame_idx), i, j)
                         obj_ids = list(video_handler.cur_masks.keys())
                         dropdown = gr.Dropdown(choices=[str(i) for i in obj_ids])
+                        if index_mask is None:
+                            return base_img, "No mask generated from point.", box_start, update_point_table(), dropdown
                         palette = get_hls_palette(index_mask.max() + 1)
                         color_mask = palette[index_mask]
                         out_u = compose_img_mask(base_img, color_mask)

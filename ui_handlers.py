@@ -219,7 +219,7 @@ def load_image_from_folder(root_dir, folder_name, file_name, img_name, image_han
     if not os.path.exists(file_path):
         return None, None, f"File not found: {file_path}"
     img = load_rgb_image(file_path)
-    result_img, message = image_handler.set_image(img)
+    result_img, message = image_handler.set_image(img, resource_path=file_path)
     return result_img, result_img, message
 
 

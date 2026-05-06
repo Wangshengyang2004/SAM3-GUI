@@ -1,7 +1,7 @@
 """
 Tests for SAM3 session management.
 
-Corresponds to: mask_app.py -> PromptGUI.get_sam_features(), reset()
+Corresponds to: native SAM3.1 session lifecycle.
 """
 
 import pytest
