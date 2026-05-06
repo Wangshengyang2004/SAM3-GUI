@@ -1,7 +1,7 @@
 """
 Tests for SAM3 video propagation functionality.
 
-Corresponds to: mask_app.py -> PromptGUI.run_tracker()
+Corresponds to: native SAM3.1 propagation.
 """
 
 import pytest

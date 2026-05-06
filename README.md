@@ -1,243 +1,192 @@
-# GUI for SAM3
+# SAM3.1 GUI/API
 
-A GUI tool for **SAM3** (Segment Anything with Concepts) video and image segmentation with **open-vocabulary text prompting** support.
+Native GUI and HTTP API for **SAM 3.1 Object Multiplex** video and image segmentation. The app intentionally supports only the latest SAM 3.1 path from `facebookresearch/sam3`; older SAM3 entry points and compatibility shims are not used.
 
-## Key Features
+## Requirements
 
-- **Text Prompting**: Segment objects using natural language (e.g., "person", "car", "red shoe")
-- **Point Clicking**: Interactive refinement with positive/negative points
-- **Box Prompts**: Draw bounding boxes to segment objects
-- **Video Tracking**: Multi-object tracking across video frames with propagation directions
-- **Multi-Object Management**: Track multiple objects independently with "Add New Mask"
-- **Open-Vocabulary**: Detect 4M+ different object types
-- **Frame-Specific Points**: Points only appear on their designated frames
-- **Auto-Download**: SAM3 model automatically downloads from HuggingFace
-
-## Installation
-
-### 1. Install SAM3
-
-First, install [SAM3](https://github.com/facebookresearch/sam3):
+- Python 3.12+
+- PyTorch 2.7+ with CUDA 12.6+ recommended
+- Latest `/home/wsy/sam3` installed editable:
 
 ```bash
-# Install PyTorch with CUDA support
-pip install torch>=2.7.0 torchvision --index-url https://download.pytorch.org/whl/cu126
-
-# Install SAM3
-cd /path/to/sam3
+cd /home/wsy/sam3
 pip install -e .
 ```
 
-### 2. Install GUI Dependencies
+Install GUI/API dependencies:
 
 ```bash
-cd SAM3-GUI
+cd /home/wsy/SAM3-GUI
 pip install -r requirements.txt
 ```
 
-**Note:** SAM3-GUI requires SAM3 to be installed first.
+## Checkpoint
 
-### 3. Download SAM3 Model
-
-Download the SAM3 model checkpoint using ModelScope:
+SAM3-GUI uses `sam3.1_multiplex.pt` from the SAM 3.1 checkpoint repo. Hugging Face is the default source:
 
 ```bash
-# Install modelscope if not already installed
-pip install modelscope
-
-# Download the model (will be saved to ~/sam3/model/sam3.pt by default)
-python download_model.py
-
-# Or specify a custom output directory
-python download_model.py --output_dir /path/to/model/dir
+python download_model.py --source huggingface
 ```
 
-The model will be downloaded from [ModelScope](https://www.modelscope.cn/models/facebook/sam3) and saved to `~/sam3/model/sam3.pt` by default.
-
-**Alternative: HuggingFace Authentication (Optional)**
-
-If you prefer to use HuggingFace or need to access private checkpoints:
+The Hugging Face checkpoint repo is gated, so request access first and authenticate locally:
 
 ```bash
-huggingface-cli login
+hf auth login
 ```
 
-## Usage
-
-### Starting the GUI
+If Hugging Face is unavailable, use the ModelScope mirror:
 
 ```bash
-python cli.py --root_dir [data_root]
+python download_model.py --source modelscope
 ```
 
-Optional arguments:
-- `--port`: Port number (default: 8890)
-- `--server_name`: Server address (default: 127.0.0.1; use 0.0.0.0 for external access)
-- `--vid_name`: Video subdirectory name (default: "videos")
-- `--img_name`: Image subdirectory name (default: "images")
-- `--mask_name`: Mask subdirectory name (default: "masks")
+Both routes store `sam3.1_multiplex.pt` under `~/sam3/model` by default. If your ModelScope mirror uses a different repo id, pass it explicitly:
 
-### Data Organization
-
-Organize your data in the following structure:
-
+```bash
+python download_model.py --source modelscope --modelscope_model_id <repo-id>
 ```
+
+The default ModelScope repo id is `facebook/sam3.1`, matching the ModelScope page for SAM 3.1. If no local checkpoint is provided, the backend lets SAM3 download `facebook/sam3.1` through its native loader on first model load.
+
+## Start
+
+```bash
+python cli.py --root_dir data_root --server_name 0.0.0.0 --port 8890
+```
+
+Options:
+
+- `--checkpoint_path`: local `sam3.1_multiplex.pt` path
+- `--gpus`: comma-separated CUDA IDs; the SAM3.1 backend uses the first ID
+- `--vid_name`, `--img_name`, `--mask_name`: data subdirectory names
+
+The Gradio UI is mounted at `/`. API docs are available at `/docs`.
+
+## Data Layout
+
+```text
 data_root/
-├── videos/          # For MP4 files to extract frames
-│   ├── seq1.mp4
-│   └── seq2.mp4
-├── images/          # For pre-extracted frame sequences
-│   ├── seq1/
-│   │   ├── frame_00000.png
-│   │   ├── frame_00001.png
-│   │   └── ...
-│   └── seq2/
-│       └── ...
-└── masks/           # Output directory for saved masks
-    ├── seq1/
-    │   ├── frame_00000.png
-    │   ├── frame_00000.npy
-    │   └── ...
-    └── seq2/
+├── videos/     # source videos
+├── images/     # extracted frame folders
+└── masks/      # saved mask outputs
 ```
 
-## Video Mode Workflow
+## API
 
-### 1. Load Frames
-
-- **Option A**: Select a video file and extract frames
-  - Choose video from dropdown
-  - Set start/end time, FPS, and height
-  - Click "Extract Frames"
-
-- **Option B**: Load pre-extracted frames
-  - Select a frame folder from the dropdown
-  - Click "Load Selected Frames"
-
-### 2. Add Prompts
-
-Choose from three prompt types:
-
-#### **Text Prompts**
-1. Enter a text description (e.g., "person", "car", "red shirt")
-2. Click "Detect with Text"
-3. Use "Add New Mask" to segment additional objects
-
-#### **Point Prompts**
-1. Click "+ Positive" for inclusion points (green)
-2. Click "- Negative" for exclusion points (red)
-3. Click on the **Output Image** to place points
-4. Points are frame-specific - switch frames to add points on other frames
-5. View the "Added Points" table to see all points across frames
-
-#### **Box Prompts**
-1. Click "Segment Box"
-2. Click two corners on the frame to draw a box
-3. The object inside will be segmented
-
-### 3. Manage Objects
-
-- **View Tracked Objects**: Dropdown shows all detected objects (0, 1, 2, ...)
-- **Remove Objects**: Select an object and click "Remove Selected Object"
-
-### 4. Track Through Video
-
-1. Select propagation direction:
-   - **Forward**: Propagate from current frame to end
-   - **Backward**: Propagate from current frame to start
-   - **Both**: Propagate in both directions (default)
-
-2. Click "Track All Frames"
-3. View the tracked video output
-4. Use frame slider to review results on individual frames
-
-### 5. Save Masks
-
-- Mask save path is auto-generated: `{root_dir}/masks/{sequence_name}/`
-- Click "Save Masks" to export masks as PNG and NPZ files
-
-## Image Mode Workflow
-
-Single image segmentation with three modes:
-
-### **Find All Mode**
-1. Enter a text prompt (e.g., "shoe", "person", "car")
-2. Adjust confidence threshold (0.0-1.0)
-3. Click "Find All" to detect all matching objects
-
-### **Box Mode**
-1. Click "Segment Box"
-2. Draw a box by clicking two corners on the image
-3. The object inside will be segmented
-
-### **Point Mode**
-1. Click "+ Positive" or "- Negative"
-2. Click on the image to place points
-3. Use "Remove Point by Index" to delete specific points
-
-## Tips for Best Results
-
-### Text Prompting
-- **Be specific**: "person in red shirt" works better than "person"
-- **Use simple descriptions**: Common nouns work best (person, car, dog)
-- **Try variations**: If "car" doesn't work, try "vehicle" or "automobile"
-
-### Point Clicking
-- Use positive points (green) on the object to segment
-- Use negative points (red) on background or other objects
-- Start with 1-3 positive points, add negatives as needed
-- **Important**: Click on the **Output Image** (right side) when adding multiple points
-
-### Multi-Object Tracking
-1. Segment your first object (text/point/box)
-2. Click "Add New Mask" to increment mask index
-3. Segment the second object
-4. Click "Track All Frames" to track all objects together
-
-## Troubleshooting
-
-### Model Download Issues
-
-SAM3 auto-downloads from HuggingFace. If you encounter issues:
+Health:
 
 ```bash
-# Check HuggingFace connection
-huggingface-cli whoami
-
-# For private checkpoints, ensure you have access
-# and are logged in with huggingface-cli login
+curl http://127.0.0.1:8890/api/health
 ```
 
-### CUDA Out of Memory
-
-If you run out of GPU memory:
+Start a video/frame-folder session:
 
 ```bash
-# Use a smaller batch size or process fewer frames at once
-# Consider extracting fewer frames from your video
+curl -X POST http://127.0.0.1:8890/api/sessions \
+  -H 'Content-Type: application/json' \
+  -d '{"resource_path":"/home/wsy/SAM3-GUI/data_root/images/Cam1_color"}'
 ```
 
-### Text Prompt Not Working
+Add a text prompt:
 
-1. Ensure frames are loaded first
-2. Try simpler or more common descriptions
-3. Check that the object is clearly visible in the current frame
-4. Combine with point clicks for difficult cases
+```bash
+curl -X POST http://127.0.0.1:8890/api/prompts \
+  -H 'Content-Type: application/json' \
+  -d '{"session_id":"SESSION","frame_index":0,"text":"person","include_masks":false}'
+```
 
-### Points Not Remembering
+Add point prompts using normalized coordinates:
 
-- Points are frame-specific - each frame has its own set of points
-- Use the "Added Points" table to see all points across all frames
-- When switching frames, only points for that frame are displayed
+```bash
+curl -X POST http://127.0.0.1:8890/api/prompts \
+  -H 'Content-Type: application/json' \
+  -d '{"session_id":"SESSION","frame_index":0,"obj_id":0,"points":[[0.5,0.5]],"point_labels":[1]}'
+```
 
-### Dtype Mismatch Error
+Add a box prompt using normalized `[x, y, width, height]`:
 
-If you see "mat1 and mat2 must have the same dtype" errors:
-- Ensure you're using PyTorch with CUDA support
-- The code now handles BFloat16/Float32 dtype mismatches automatically
+```bash
+curl -X POST http://127.0.0.1:8890/api/prompts \
+  -H 'Content-Type: application/json' \
+  -d '{"session_id":"SESSION","frame_index":0,"bounding_boxes":[[0.2,0.2,0.4,0.5]],"bounding_box_labels":[1]}'
+```
 
-## Acknowledgments
+For SAM 3.1 Object Multiplex, text grounding is the reliable way to create new objects. Box prompts are accepted as geometric guidance, but pure box-only prompts may return no objects on some videos. Use `text` plus `bounding_boxes` when starting an object from a video frame:
 
-The app is modified based on [shape-of-motion](https://github.com/vye16/shape-of-motion/), upgraded from SAM2 to SAM3 with text prompting support.
+```bash
+curl -X POST http://127.0.0.1:8890/api/prompts \
+  -H 'Content-Type: application/json' \
+  -d '{"session_id":"SESSION","frame_index":0,"text":"vehicle","bounding_boxes":[[0.4094,0.8184,0.3274,0.1816]],"bounding_box_labels":[1],"include_masks":false}'
+```
 
-![gradio interface](asset/gradio_interface.png)
+Propagate:
+
+```bash
+curl -X POST http://127.0.0.1:8890/api/propagate \
+  -H 'Content-Type: application/json' \
+  -d '{"session_id":"SESSION","propagation_direction":"both","include_masks":false}'
+```
+
+Remove an object:
+
+```bash
+curl -X POST http://127.0.0.1:8890/api/objects/remove \
+  -H 'Content-Type: application/json' \
+  -d '{"session_id":"SESSION","obj_id":0}'
+```
+
+Close a session:
+
+```bash
+curl -X DELETE http://127.0.0.1:8890/api/sessions/SESSION
+```
+
+Segment one uploaded image:
+
+```bash
+curl -X POST http://127.0.0.1:8890/api/images/segment \
+  -F file=@/path/to/image.jpg \
+  -F text=person
+```
+
+Mask outputs are COCO RLE when `include_masks` is true.
+
+## Tests
+
+Run the offline suite first. It covers the API surface, launcher/configuration, checkpoint guardrails, mask serialization, and UI handler request shapes without loading the checkpoint:
+
+```bash
+cd /home/wsy/SAM3-GUI
+/home/wsy/miniconda3/envs/sam3/bin/python -m pytest -q tests
+```
+
+Tests that need real SAM 3.1 inference are skipped unless `~/sam3/model/sam3.1_multiplex.pt` exists. To run the full integration path, download or place the checkpoint, then run the same command. To let SAM3 download during tests instead of using a local file:
+
+```bash
+SAM3_ALLOW_HF_DOWNLOAD=1 /home/wsy/miniconda3/envs/sam3/bin/python -m pytest -q tests
+```
+
+Use `SAM3_CHECKPOINT_PATH=/path/to/sam3.1_multiplex.pt` for a custom checkpoint location.
+
+Focused real-inference checks used during development:
+
+```bash
+SAM3_CHECKPOINT_PATH=/home/wsy/sam3/model/sam3.1_multiplex.pt \
+/home/wsy/miniconda3/envs/sam3/bin/python -m pytest -q \
+tests/test_integration_sam31_gui_api.py::test_native_sam31_real_mp4_text_box_prompt_smoke -s
+```
+
+This test decodes a real `.mp4`, adds a `text + box` prompt, and runs propagation through the native SAM 3.1 checkpoint.
+
+## UI Workflow
+
+Video mode supports text, point, and box prompts on frame folders or extracted video frames, then tracks with SAM 3.1 Object Multiplex through forward, backward, or both directions. Image mode uses the same SAM 3.1 request API by starting a single-frame session.
+
+Saved masks are written to `{root_dir}/masks/{sequence_name}/` as color PNGs and index-mask `.npy` files.
+
+## Verified Behavior
+
+- Real image sessions detect ordinary online images such as `car` and `dog` with high confidence.
+- Real `.mp4` sessions load through OpenCV frame decoding and propagate tracked objects after a successful prompt.
+- If a prompt finds no objects, propagation returns no frames instead of calling the native propagation path with an empty object set.
+- Hugging Face and ModelScope checkpoint download routes both target `sam3.1_multiplex.pt`.

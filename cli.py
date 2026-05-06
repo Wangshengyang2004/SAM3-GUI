@@ -1,5 +1,4 @@
 import argparse
-import sys
 
 from loguru import logger as guru
 
@@ -13,7 +12,7 @@ from config import (
     default_root_dir,
     resolve_checkpoint_path,
 )
-from mask_app import make_demo
+from api_app import create_app
 
 
 def parse_gpus(gpus_arg):
@@ -33,6 +32,7 @@ def build_parser(script_path):
     parser.add_argument("--img_name", type=str, default=DEFAULT_IMG_NAME)
     parser.add_argument("--mask_name", type=str, default=DEFAULT_MASK_NAME)
     parser.add_argument("--gpus", type=str, default=None)
+    parser.add_argument("--reload", action="store_true", help="Enable uvicorn reload")
     return parser
 
 
@@ -45,16 +45,14 @@ def main(argv=None):
         default_checkpoint_candidates(__file__),
         logger=guru,
     )
-    if not checkpoint_path:
-        guru.error(
-            "No checkpoint found. Set --checkpoint_path or place sam3.pt in a default path (see config.default_checkpoint_candidates)."
-        )
-        sys.exit(1)
     gpus_to_use = parse_gpus(args.gpus)
     if gpus_to_use is not None:
         guru.info(f"Using GPUs: {gpus_to_use}")
 
-    demo = make_demo(
+    if args.share:
+        guru.warning("--share is a Gradio-only option and is ignored by the FastAPI launcher.")
+
+    app = create_app(
         args.root_dir,
         checkpoint_path,
         gpus_to_use,
@@ -62,15 +60,17 @@ def main(argv=None):
         args.img_name,
         args.mask_name,
     )
-    share = args.share
+
+    import uvicorn
+
     port = args.port
     for attempt in range(21):
         try:
-            demo.launch(
-                server_name=args.server_name,
-                server_port=port,
-                share=share,
-                show_error=True,
+            uvicorn.run(
+                app,
+                host=args.server_name,
+                port=port,
+                reload=args.reload,
             )
             break
         except OSError as e:

@@ -8,37 +8,57 @@ import sys
 import numpy as np
 import pytest
 
-# Add parent and sam3 root to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
+GUI_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+SAM3_REPO_ROOT = os.path.expanduser("~/sam3")
+
+# Add the GUI and SAM3 package roots without shadowing the editable sam3 package.
+sys.path.insert(0, GUI_ROOT)
+sys.path.insert(0, SAM3_REPO_ROOT)
 
 
 # Configuration
 DEFAULT_CHECKPOINT_PATH = os.environ.get(
     "SAM3_CHECKPOINT_PATH", 
-    os.path.expanduser("~/sam3/model/sam3.pt")
+    os.path.expanduser("~/sam3/model/sam3.1_multiplex.pt")
 )
+ALLOW_HF_DOWNLOAD = os.environ.get("SAM3_ALLOW_HF_DOWNLOAD", "").lower() in {"1", "true", "yes"}
 DEFAULT_TEST_IMG_DIR = os.environ.get(
     "SAM3_TEST_IMG_DIR",
-    os.path.join(os.path.dirname(os.path.dirname(__file__)), "data_root/images/test_seq")
+    os.path.join(GUI_ROOT, "data_root/images/Cam1_color")
 )
+DEFAULT_TEST_VIDEO_PATH = os.environ.get(
+    "SAM3_TEST_VIDEO_PATH",
+    os.path.join(GUI_ROOT, "data_root/videos/Cam1_color.mp4"),
+)
+
+
+def _resolve_sam31_checkpoint() -> str | None:
+    checkpoint_path = DEFAULT_CHECKPOINT_PATH
+    if os.path.exists(checkpoint_path):
+        return checkpoint_path
+    if ALLOW_HF_DOWNLOAD:
+        return None
+    pytest.skip(
+        "SAM 3.1 checkpoint not found at "
+        f"{checkpoint_path}. Run download_model.py, set SAM3_CHECKPOINT_PATH, "
+        "or set SAM3_ALLOW_HF_DOWNLOAD=1 for online Hugging Face download."
+    )
+
+
+@pytest.fixture(scope="session")
+def require_sam31_checkpoint() -> str | None:
+    """Require a local/online SAM 3.1 checkpoint for real integration tests."""
+    return _resolve_sam31_checkpoint()
 
 
 @pytest.fixture(scope="session")
 def sam3_model():
     """Load SAM3 video predictor once for all tests."""
-    import torch
-    from sam3.model_builder import build_sam3_video_predictor
-    
-    gpus_to_use = [0] if torch.cuda.is_available() else []
-    
-    checkpoint_path = DEFAULT_CHECKPOINT_PATH
-    if not os.path.exists(checkpoint_path):
-        checkpoint_path = None
-    
-    model = build_sam3_video_predictor(
-        checkpoint_path=checkpoint_path,
-        gpus_to_use=gpus_to_use
+    from sam3.model_builder import build_sam3_predictor
+
+    model = build_sam3_predictor(
+        version="sam3.1",
+        checkpoint_path=_resolve_sam31_checkpoint(),
     )
     
     yield model
@@ -70,6 +90,14 @@ def test_images(test_img_dir):
     if not images:
         pytest.skip(f"No test images found in {test_img_dir}")
     return images
+
+
+@pytest.fixture(scope="session")
+def test_video_path():
+    """Path to a real test video file."""
+    if not os.path.exists(DEFAULT_TEST_VIDEO_PATH):
+        pytest.skip(f"Test video not found: {DEFAULT_TEST_VIDEO_PATH}")
+    return DEFAULT_TEST_VIDEO_PATH
 
 
 @pytest.fixture

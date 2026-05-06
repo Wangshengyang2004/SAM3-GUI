@@ -12,12 +12,12 @@ import os
 # Add parent directory to path
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from mask_app import (
+from utils import (
     get_hls_palette,
     colorize_masks,
     compose_img_mask,
-    PromptGUI,
 )
+from video_handler import VideoModeHandler
 
 
 class TestMakeIndexMask:
@@ -25,7 +25,7 @@ class TestMakeIndexMask:
 
     def test_make_index_mask_with_single_mask(self):
         """Test make_index_mask with a single mask."""
-        gui = PromptGUI.__new__(PromptGUI)
+        gui = VideoModeHandler.__new__(VideoModeHandler)
         gui.image = np.zeros((100, 100, 3), dtype=np.uint8)
         
         masks = {0: np.zeros((100, 100), dtype=bool)}
@@ -40,7 +40,7 @@ class TestMakeIndexMask:
 
     def test_make_index_mask_with_multiple_masks(self):
         """Test make_index_mask with multiple masks."""
-        gui = PromptGUI.__new__(PromptGUI)
+        gui = VideoModeHandler.__new__(VideoModeHandler)
         gui.image = np.zeros((100, 100, 3), dtype=np.uint8)
         
         masks = {
@@ -59,7 +59,7 @@ class TestMakeIndexMask:
 
     def test_make_index_mask_empty(self):
         """Test make_index_mask with empty masks dict."""
-        gui = PromptGUI.__new__(PromptGUI)
+        gui = VideoModeHandler.__new__(VideoModeHandler)
         gui.image = np.zeros((100, 100, 3), dtype=np.uint8)
         
         masks = {}
@@ -70,7 +70,7 @@ class TestMakeIndexMask:
 
     def test_make_index_mask_empty_no_image(self):
         """Test make_index_mask with empty masks and no image."""
-        gui = PromptGUI.__new__(PromptGUI)
+        gui = VideoModeHandler.__new__(VideoModeHandler)
         gui.image = None
         
         masks = {}
@@ -131,7 +131,7 @@ class TestNormalizePoints:
 
     def test_normalize_points(self):
         """Test _normalize_points method."""
-        gui = PromptGUI.__new__(PromptGUI)
+        gui = VideoModeHandler.__new__(VideoModeHandler)
         gui.image = np.zeros((480, 640, 3), dtype=np.uint8)  # 640x480 image
         
         points = [[320, 240]]  # Center of image in pixels
@@ -143,7 +143,7 @@ class TestNormalizePoints:
 
     def test_normalize_points_no_image(self):
         """Test _normalize_points with no image set."""
-        gui = PromptGUI.__new__(PromptGUI)
+        gui = VideoModeHandler.__new__(VideoModeHandler)
         gui.image = None
         
         points = [[100, 100]]
@@ -154,7 +154,7 @@ class TestNormalizePoints:
 
     def test_normalize_multiple_points(self):
         """Test _normalize_points with multiple points."""
-        gui = PromptGUI.__new__(PromptGUI)
+        gui = VideoModeHandler.__new__(VideoModeHandler)
         gui.image = np.zeros((100, 200, 3), dtype=np.uint8)  # 200x100 image
         
         points = [[0, 0], [200, 100], [100, 50]]
