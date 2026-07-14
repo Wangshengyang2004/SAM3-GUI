@@ -1,13 +1,18 @@
 import os
 
+import pytest
 from fastapi.testclient import TestClient
 
-from api_app import create_app
-from image_handler import ImageModeHandler
-from video_handler import VideoModeHandler
+from sam3_gui.api_app import create_app
+from sam3_gui.image_handler import ImageModeHandler
+from sam3_gui.video_handler import VideoModeHandler
+
+pytestmark = pytest.mark.integration
 
 
-def test_native_sam31_api_and_gui_smoke(require_sam31_checkpoint, test_img_dir, test_images):
+def test_native_sam31_api_and_gui_smoke(
+    require_sam31_checkpoint, test_img_dir, test_images
+):
     checkpoint_path = require_sam31_checkpoint
     root_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data_root")
     app = create_app(root_dir, checkpoint_path=checkpoint_path)
@@ -62,7 +67,9 @@ def test_native_sam31_api_and_gui_smoke(require_sam31_checkpoint, test_img_dir, 
     assert "loaded" in message.lower()
 
 
-def test_native_sam31_real_mp4_text_box_prompt_smoke(require_sam31_checkpoint, test_video_path):
+def test_native_sam31_real_mp4_text_box_prompt_smoke(
+    require_sam31_checkpoint, test_video_path
+):
     checkpoint_path = require_sam31_checkpoint
     root_dir = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data_root")
     app = create_app(root_dir, checkpoint_path=checkpoint_path)

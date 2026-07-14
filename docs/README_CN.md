@@ -1,16 +1,17 @@
-# SAM3 图形界面
+# SAM3.1 图形界面/API
 
-[English](README.md) | **简体中文**
+[English](../README.md) | **简体中文**
 
-基于 **SAM3** (Segment Anything with Concepts) 的视频和图像分割图形界面工具，支持**开放词汇文本提示**。
+基于 **SAM 3.1 Object Multiplex** 的视频和图像分割图形界面和 HTTP API，支持文本、点和框提示。本仓库只支持 SAM 3.1 的 `sam3.1_multiplex.pt` 检查点，不支持旧版 SAM 3.0 `sam3.pt`。
 
 ## 主要功能
 
-- **原生 SAM3 支持**: 基于 SAM3 构建，完全兼容 SAM3 API
+- **原生 SAM 3.1 支持**: 使用 `facebookresearch/sam3` 当前的 Object Multiplex API
 - **文本提示**: 使用自然语言描述分割对象（例如"人"、"汽车"、"红鞋子"）
 - **点选交互**: 使用正/负样本点进行交互式优化
 - **框选提示**: 绘制边界框来分割对象
 - **视频追踪**: 跨视频帧的多对象追踪，支持传播方向设置
+- **HTTP API**: 提供会话、提示、传播、对象移除和图像分割接口
 - **多对象管理**: 使用"添加新掩码"功能独立追踪多个对象
 
 ## 安装
@@ -24,7 +25,7 @@
 
 ### 1. 安装 SAM3
 
-首先，安装 [SAM3](https://github.com/facebookresearch/sam3)：
+首先安装 [SAM3](https://github.com/facebookresearch/sam3) 包。需要使用包含 SAM 3.1 Object Multiplex API 的当前版本：
 
 ```bash
 # 创建新的 Conda 环境
@@ -33,9 +34,11 @@ conda activate sam3
 
 # 安装带 CUDA 支持的 PyTorch
 pip install torch==2.7.0 torchvision torchaudio --index-url https://download.pytorch.org/whl/cu126
+```
 
-**Blackwell RTX 50X0 GPU 用户注意：** 这些 GPU 需要从源码编译 torchvision，因为目前尚无预编译的 wheel 包。
+**Blackwell RTX 50X0 GPU 用户注意：** 这些 GPU 可能需要从源码编译 torchvision；详见 [blackwell_support.md](blackwell_support.md)。
 
+```bash
 # 克隆仓库并安装包
 git clone https://github.com/facebookresearch/sam3.git
 cd sam3
@@ -56,47 +59,47 @@ cd SAM3-GUI
 pip install -r requirements.txt
 ```
 
-**注意：** 需要先安装 SAM3 才能使用 SAM3-GUI。
+**注意：** 需要先安装最新版 SAM3 包，并确认 `sam3.model_builder.build_sam3_predictor` 支持 `version="sam3.1"`，才能使用本项目。
 
-### 3. 下载 SAM3 模型
+### 3. 下载 SAM 3.1 模型
 
-使用 ModelScope 下载 SAM3 模型检查点：
+本项目使用 `facebook/sam3.1` 的 `sam3.1_multiplex.pt`。Hugging Face 是默认下载源：
 
 ```bash
-# 如果尚未安装 modelscope
-pip install modelscope
+# 首次使用 Hugging Face gated checkpoint 前需要登录
+hf auth login
 
-# 下载模型（默认保存到 ~/sam3/model/sam3.pt）
-python tools/download_model.py
+# 默认保存到 ~/sam3/model/sam3.1_multiplex.pt
+python -m tools.download_model --source huggingface
 
 # 或指定自定义输出目录
-python tools/download_model.py --output_dir /path/to/model/dir
+python -m tools.download_model --source huggingface --output_dir /path/to/model/dir
 ```
 
-模型将从 [ModelScope](https://www.modelscope.cn/models/facebook/sam3) 下载，默认保存到 `~/sam3/model/sam3.pt`。
-
-**替代方案：HuggingFace 认证（可选）**
-
-如果你更喜欢使用 HuggingFace 或需要访问私有检查点：
+如果 Hugging Face 不可用，可以改用 ModelScope：
 
 ```bash
-huggingface-cli login
+python -m tools.download_model --source modelscope
 ```
+
+两个下载路径都只会获取 `sam3.1_multiplex.pt`。如果你的 ModelScope 镜像使用不同 repo id，使用 `--modelscope_model_id <repo-id>` 指定。
 
 ## 使用说明
 
 ### 启动 GUI
 
 ```bash
-python cli.py --root_dir [数据根目录]
+python cli.py data.root_dir=data_root server.name=0.0.0.0 server.port=8890
 ```
 
-可选参数：
-- `--port`: 端口号（默认：8890）
-- `--server_name`: 服务器地址（默认：127.0.0.1；如需外部访问请使用 0.0.0.0）
-- `--vid_name`: 视频子目录名称（默认："videos"）
-- `--img_name`: 图像子目录名称（默认："images"）
-- `--mask_name`: 掩码子目录名称（默认："masks"）
+常用 Hydra 覆盖项：
+- `sam.checkpoint_path=/path/to/sam3.1_multiplex.pt`
+- `sam.gpus=[0]`
+- `sam.use_fa3=true`
+- `data.vid_name=videos data.img_name=images data.mask_name=masks`
+- `server.reload=true`
+
+默认配置由 `sam3_gui/conf/config.yaml` 和 `server`、`data`、`sam` 分组组合而成。旧参数（例如 `--root_dir`、`--port`、`--use_fa3`）仍可使用，但新配置优先使用 Hydra 覆盖项。
 
 ### 数据组织
 
@@ -198,8 +201,8 @@ data_root/
 
 ## 致谢
 
-本应用基于 [shape-of-motion](https://github.com/vye16/shape-of-motion/) 修改，从 SAM2 升级到 SAM3 并添加了文本提示支持。
+本应用基于 [shape-of-motion](https://github.com/vye16/shape-of-motion/) 修改，并适配 Meta 的 [SAM3](https://github.com/facebookresearch/sam3) SAM 3.1 Object Multiplex 实现和检查点。
 
-![SAM3 GUI 视频模式](asset/sam3_1.png)
+![SAM3 GUI 视频模式](assets/sam3_1.png)
 
-![SAM3 GUI 图像模式](asset/sam3_2.png)
+![SAM3 GUI 图像模式](assets/sam3_2.png)

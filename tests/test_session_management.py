@@ -6,6 +6,8 @@ Corresponds to: native SAM3.1 session lifecycle.
 
 import pytest
 
+pytestmark = pytest.mark.integration
+
 
 class TestSessionManagement:
     """Test SAM3 session lifecycle."""
@@ -18,12 +20,12 @@ class TestSessionManagement:
                 resource_path=test_img_dir,
             )
         )
-        
+
         assert "session_id" in response
         session_id = response["session_id"]
         assert session_id is not None
         assert isinstance(session_id, str)
-        
+
         # Cleanup
         sam3_model.handle_request(
             request=dict(
@@ -40,7 +42,7 @@ class TestSessionManagement:
                 session_id=session_id,
             )
         )
-        
+
         assert response.get("is_success") is True
 
     def test_close_session(self, sam3_model, test_img_dir):
@@ -53,7 +55,7 @@ class TestSessionManagement:
             )
         )
         session_id = start_response["session_id"]
-        
+
         # Close the session
         close_response = sam3_model.handle_request(
             request=dict(
@@ -61,7 +63,7 @@ class TestSessionManagement:
                 session_id=session_id,
             )
         )
-        
+
         assert close_response.get("is_success") is True
 
     def test_close_nonexistent_session(self, sam3_model):

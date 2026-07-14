@@ -1,10 +1,14 @@
-import torch as th
 from dataclasses import dataclass
 import numpy as np
 import cv2
-from PIL import Image, ImageDraw
 import os
-import matplotlib.pyplot as plt
+
+from tools.paths import (
+    OUTPUT_DIR,
+    ensure_output_dir,
+    image_sequence_dir,
+    mask_sequence_dir,
+)
 
 inverse_transparency = False
 
@@ -14,6 +18,7 @@ transparent_factor_min = 0.5
 start_color = None
 end_color = None
 
+
 def get_mask_centers(img, mask):
     # only one mask contrains any value from 0 to 255
     # get all the pixels by mask
@@ -21,19 +26,17 @@ def get_mask_centers(img, mask):
     labels = np.unique(mask)
     centers = []
     contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
-    starts, ends =[], []
-    
     # 如果标签数少于3，说明没有足够的目标
     if len(labels) < 3:
         return []
-        
+
     # 假设最大的两个轮廓是我们的目标
     if len(contours) >= 2:
         areas = [cv2.contourArea(cnt) for cnt in contours]
         # 获取最大的两个轮廓索引
         sorted_indices = np.argsort(areas)[::-1][:2]
         main_contours = [contours[i] for i in sorted_indices]
-        
+
         for cnt in main_contours:
             # 提取轮廓内的像素 (removed unused masked_pixels array creation)
             # 计算重心
@@ -43,12 +46,13 @@ def get_mask_centers(img, mask):
             cX = M["m10"] / M["m00"]
             cY = M["m01"] / M["m00"]
             centers.append((cX, cY))
-        
+
     return centers
+
 
 def _hex_to_bgr_array(hex_code: str):
     """hex_code: 'F5EEF4' or '#F5EEF4' -> np.array([B,G,R], float32)"""
-    h = hex_code.lstrip('#')
+    h = hex_code.lstrip("#")
     if len(h) != 6:
         raise ValueError(f"Bad hex color: {hex_code}")
     r = int(h[0:2], 16)
@@ -57,9 +61,8 @@ def _hex_to_bgr_array(hex_code: str):
     return np.array([b, g, r], dtype=np.float32)
 
 
+def draw_lines(img, mask, points):
 
-def draw_lines(img,mask, points):
-    
     # BGR 起点亮粉色 (255, 0, 255), 终点黄色 (0, 255, 255)
     if not points:
         return
@@ -72,7 +75,7 @@ def draw_lines(img,mask, points):
     thickness = 2
 
     # 处理通道 (BGR 或 BGRA)
-    has_alpha = (img.shape[2] == 4)
+    has_alpha = img.shape[2] == 4
     alpha_val = 255
 
     for i in range(steps):
@@ -96,36 +99,38 @@ def draw_lines(img,mask, points):
     return img
 
 
-def compare_pixel_colors(masked_pixels, start_color, end_color, method='euclidean', stat_method='mode'):
+def compare_pixel_colors(
+    masked_pixels, start_color, end_color, method="euclidean", stat_method="mode"
+):
     """
     比较提取像素区域的统计特征与起始/结束颜色的相似度
-    
+
     Args:
         masked_pixels: (N, 3或4) 提取的像素值
         start_color: (3,) BGR起始颜色
-        end_color: (3,) BGR结束颜色  
+        end_color: (3,) BGR结束颜色
         method: 'euclidean', 'manhattan', 'cosine'
         stat_method: 'mean', 'median', 'mode' - 统计方法
-    
+
     Returns:
         closer_to_start: bool, True表示更接近start_color
         distance_start: float, 到start_color的距离
         distance_end: float, 到end_color的距离
     """
     if len(masked_pixels) == 0:
-        return False, float('inf'), float('inf')
-        
+        return False, float("inf"), float("inf")
+
     # 只取BGR通道
     pixels_bgr = masked_pixels[:, :3].astype(np.float32)
-    start_bgr = start_color.astype(np.float32) 
+    start_bgr = start_color.astype(np.float32)
     end_bgr = end_color.astype(np.float32)
-    
+
     # 计算统计特征
-    if stat_method == 'mean':
+    if stat_method == "mean":
         representative_color = np.mean(pixels_bgr, axis=0)
-    elif stat_method == 'median':
+    elif stat_method == "median":
         representative_color = np.median(pixels_bgr, axis=0)
-    elif stat_method == 'mode':
+    elif stat_method == "mode":
         # 对每个通道分别计算众数（量化到最近整数）
         representative_color = np.zeros(3)
         for i in range(3):
@@ -135,35 +140,37 @@ def compare_pixel_colors(masked_pixels, start_color, end_color, method='euclidea
             representative_color[i] = unique_vals[mode_idx]
     else:
         raise ValueError(f"Unknown stat_method: {stat_method}")
-    
+
     # 计算代表性颜色与目标颜色的距离
-    if method == 'euclidean':
-        dist_start = np.sqrt(np.sum((representative_color - start_bgr)**2))
-        dist_end = np.sqrt(np.sum((representative_color - end_bgr)**2))
-    elif method == 'manhattan':
+    if method == "euclidean":
+        dist_start = np.sqrt(np.sum((representative_color - start_bgr) ** 2))
+        dist_end = np.sqrt(np.sum((representative_color - end_bgr) ** 2))
+    elif method == "manhattan":
         dist_start = np.sum(np.abs(representative_color - start_bgr))
         dist_end = np.sum(np.abs(representative_color - end_bgr))
-    elif method == 'cosine':
+    elif method == "cosine":
+
         def cosine_dist(a, b):
             dot = np.dot(a, b)
             norm_a = np.linalg.norm(a)
             norm_b = np.linalg.norm(b)
             return 1 - dot / (norm_a * norm_b + 1e-8)
+
         dist_start = cosine_dist(representative_color, start_bgr)
         dist_end = cosine_dist(representative_color, end_bgr)
     else:
         raise ValueError(f"Unknown method: {method}")
-    
+
     closer_to_start = dist_start < dist_end
     return closer_to_start, dist_start, dist_end
+
 
 def get_video_frames(video_path, indices):
     """
     Load frames from image directory instead of video file
     video_path: path relative to data_root/images/
     """
-    base_path = "/home/simonwsy/SAM3-GUI/data_root/images"
-    full_path = f"{base_path}/{video_path}"
+    full_path = image_sequence_dir(video_path)
 
     frames = []
     for idx in indices:
@@ -177,18 +184,19 @@ def get_video_frames(video_path, indices):
     print(f"Loaded {len(frames)} frames from {full_path}")
     return frames
 
+
 def get_masks(name, indices):
     """
     Load masks from data_root/masks directory
     name: path relative to data_root/masks/
     """
-    base_path = "/home/simonwsy/SAM3-GUI/data_root/masks"
+    base_path = mask_sequence_dir(name)
     masks = []
     for i in indices:
-        mask = np.load(f"{base_path}/{name}/{str(i).zfill(5)}.npy")
+        mask = np.load(os.path.join(base_path, f"{str(i).zfill(5)}.npy"))
         masks.append(mask)
 
-    print(f"Loaded {len(masks)} masks from {base_path}/{name}")
+    print(f"Loaded {len(masks)} masks from {base_path}")
     return masks
 
 
@@ -200,9 +208,10 @@ class Config:
     name: str = ""
     background: str = None
 
+
 def merge(cfg: Config):
     # Create output directory
-    os.makedirs("output", exist_ok=True)
+    ensure_output_dir()
 
     indices = np.arange(cfg.start, cfg.end, cfg.interval, dtype=int)
     frames = get_video_frames(f"{cfg.name}", indices)
@@ -217,20 +226,21 @@ def merge(cfg: Config):
 
     # Save output
     name = cfg.name.split("/")[-1]
-    output_path = f"output/{name}_merged.png"
+    output_path = os.path.join(OUTPUT_DIR, f"{name}_merged.png")
     cv2.imwrite(output_path, img)
     print(f"Saved merged image to {output_path}")
+
 
 def get_background(name, back):
     if back is None:
         return None
     # Try loading from images directory
-    img = cv2.imread(f"/home/simonwsy/SAM3-GUI/data_root/images/{name}/{back}")
+    img = cv2.imread(os.path.join(image_sequence_dir(name), back))
     if img is None:
         print(f"Warning: Could not load background {back}")
     return img
-    
-    
+
+
 def merge_masked_images(images, masks, background=None):
     """
     Merge masked parts of n images into the last image with transparency
@@ -261,13 +271,15 @@ def merge_masked_images(images, masks, background=None):
 
     # Convert images to RGBA if they are RGB
     # inverse_transparency = True
-    images = [np.dstack((img, np.full(img.shape[:2], 255))) if img.shape[-1] == 3 else img for img in images]
+    images = [
+        np.dstack((img, np.full(img.shape[:2], 255))) if img.shape[-1] == 3 else img
+        for img in images
+    ]
     if inverse_transparency:
         images = list(reversed(images))
         masks = list(reversed(masks))
     # Use the last image as the base (convert to float for blending)
     combined_image = images[-1].astype(np.float32)
-    darkening_factor = 1.0
     if background is None:
         background = images[-1].astype(np.float32)
     else:
@@ -278,54 +290,64 @@ def merge_masked_images(images, masks, background=None):
     # make the background darker
     # background[..., 0] *= 0.5
 
-    transparent_factors = np.linspace(transparent_factor_min, transparent_factor_max, num=len(images))
+    transparent_factors = np.linspace(
+        transparent_factor_min, transparent_factor_max, num=len(images)
+    )
     mix_factor = 1
-    
-    r_id = [81, 82, 83, 84 ,88]
-    
-    for idx in (range(len(images))):  # TODO if transparency is not inversed
-        
+
+    r_id = [81, 82, 83, 84, 88]
+
+    for idx in range(len(images)):  # TODO if transparency is not inversed
         img = np.ascontiguousarray(images[idx].astype(np.float32))
-        mask = masks[idx].copy() # Ensure contiguous and independent
+        mask = masks[idx].copy()  # Ensure contiguous and independent
         # centers = get_mask_centers(masks[idx])
-        centers = get_mask_centers(img,mask)
+        centers = get_mask_centers(img, mask)
 
         trans = transparent_factors[idx]
         print(f"Frame {idx}: transparency factor {trans}")
-        if len(centers)>= 2 and idx % 1 == 0:
+        if len(centers) >= 2 and idx % 1 == 0:
             if idx >= len(images) - 4 or idx in r_id:
                 centers = list(reversed(centers))
             draw_lines(img, mask, centers)
 
-        mask = np.expand_dims(mask, axis=-1)  # Add a channel dimension to match (H, W, 1)
-        
-        mask = np.clip(mask, None ,1) # Normalize mask to [0, 1]
+        mask = np.expand_dims(
+            mask, axis=-1
+        )  # Add a channel dimension to match (H, W, 1)
+
+        mask = np.clip(mask, None, 1)  # Normalize mask to [0, 1]
         new = mask * mix_factor
         remain = 1 - new
-        
+
         # each part
         new_part = img * new
         remain_part = background * new
-        
+
         # Blend the transparent masked area onto the combined image
-        combined_image = combined_image * remain + new_part * trans + remain_part * (1-trans)
+        combined_image = (
+            combined_image * remain + new_part * trans + remain_part * (1 - trans)
+        )
 
     # Clip values to valid range and convert back to uint8
     combined_image = np.clip(combined_image, 0, 255).astype(np.uint8)
     return combined_image
 
+
 def save_frames(cfg):
     indices = np.arange(cfg.start, cfg.end, cfg.interval, dtype=int)
     frames = get_video_frames(f"{cfg.name}_frames", indices)
-    # save frames in a folder
-    os.makedirs(f"videos/{cfg.name}_frames", exist_ok=True)
+    frame_output_dir = ensure_output_dir("videos", f"{cfg.name}_frames")
     for i, frame in zip(indices, frames):
-        cv2.imwrite(f"videos/{cfg.name}_frames/{str(i).zfill(5)}.png", frame)
+        cv2.imwrite(os.path.join(frame_output_dir, f"{str(i).zfill(5)}.png"), frame)
     return frames
-    
+
 
 def main():
-    global inverse_transparency, transparent_factor_min, transparent_factor_max, start_color, end_color
+    global \
+        inverse_transparency, \
+        transparent_factor_min, \
+        transparent_factor_max, \
+        start_color, \
+        end_color
 
     # Set colors for trajectory lines
     end_color = _hex_to_bgr_array("D0BA72")
@@ -341,6 +363,7 @@ def main():
 
     print(f"Processing frames {h.start} to {h.end} with interval {h.interval}")
     merge(h)
+
 
 if __name__ == "__main__":
     main()

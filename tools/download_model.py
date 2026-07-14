@@ -7,7 +7,11 @@ import os
 import shutil
 from pathlib import Path
 
-from sam31_backend import SAM31_CHECKPOINT_NAME, SAM31_HF_REPO, SAM31_MODELSCOPE_REPO
+from sam3_gui.sam31_constants import (
+    SAM31_CHECKPOINT_NAME,
+    SAM31_HF_REPO,
+    SAM31_MODELSCOPE_REPO,
+)
 
 
 DEFAULT_OUTPUT_DIR = "~/sam3/model"
@@ -25,7 +29,7 @@ def _prepare_output_dir(output_dir: str | os.PathLike[str] | None) -> Path:
 def _print_success(checkpoint: str | os.PathLike[str]) -> None:
     print(f"\nSAM 3.1 checkpoint ready at: {checkpoint}")
     print("\nRun the GUI/API with:")
-    print(f"  python cli.py --checkpoint_path {checkpoint}")
+    print(f"  sam3-gui sam.checkpoint_path={checkpoint}")
 
 
 def download_sam31_from_huggingface(output_dir=None) -> bool:
@@ -33,7 +37,7 @@ def download_sam31_from_huggingface(output_dir=None) -> bool:
         from huggingface_hub import hf_hub_download
     except ImportError:
         print("Error: huggingface_hub is not installed.")
-        print("Install GUI dependencies with: pip install -r requirements.txt")
+        print("Install SAM3-GUI with: pip install -e .")
         return False
 
     output_path = _prepare_output_dir(output_dir)
@@ -50,17 +54,25 @@ def download_sam31_from_huggingface(output_dir=None) -> bool:
         return True
     except Exception as exc:
         print(f"\nError downloading SAM 3.1 checkpoint from Hugging Face: {exc}")
-        print("Make sure you have accepted access on Hugging Face and run `hf auth login`.")
-        print("If Hugging Face is unreachable, try: python download_model.py --source modelscope")
+        print(
+            "Make sure you have accepted access on Hugging Face and run `hf auth login`."
+        )
+        print(
+            "If Hugging Face is unreachable, try: python -m tools.download_model --source modelscope"
+        )
         return False
 
 
-def _copy_modelscope_file_to_output(downloaded_path: str | os.PathLike[str], output_path: Path) -> Path:
+def _copy_modelscope_file_to_output(
+    downloaded_path: str | os.PathLike[str], output_path: Path
+) -> Path:
     source_path = Path(downloaded_path)
     if source_path.is_dir():
         source_path = source_path / SAM31_CHECKPOINT_NAME
     if not source_path.exists():
-        raise FileNotFoundError(f"ModelScope download did not produce {SAM31_CHECKPOINT_NAME}: {source_path}")
+        raise FileNotFoundError(
+            f"ModelScope download did not produce {SAM31_CHECKPOINT_NAME}: {source_path}"
+        )
     checkpoint_path = output_path / SAM31_CHECKPOINT_NAME
     if source_path.resolve() != checkpoint_path.resolve():
         shutil.copy2(source_path, checkpoint_path)
@@ -72,12 +84,18 @@ def _import_modelscope_attr(module_name: str, attr_name: str):
     return getattr(module, attr_name)
 
 
-def download_sam31_from_modelscope(output_dir=None, model_id: str | None = None) -> bool:
+def download_sam31_from_modelscope(
+    output_dir=None, model_id: str | None = None
+) -> bool:
     try:
-        model_file_download = _import_modelscope_attr("modelscope.hub.file_download", "model_file_download")
+        model_file_download = _import_modelscope_attr(
+            "modelscope.hub.file_download", "model_file_download"
+        )
     except ImportError:
         try:
-            model_file_download = _import_modelscope_attr("modelscope", "model_file_download")
+            model_file_download = _import_modelscope_attr(
+                "modelscope", "model_file_download"
+            )
         except (AttributeError, ImportError):
             model_file_download = None
     except AttributeError:
@@ -85,20 +103,28 @@ def download_sam31_from_modelscope(output_dir=None, model_id: str | None = None)
 
     if model_file_download is None:
         try:
-            snapshot_download = _import_modelscope_attr("modelscope", "snapshot_download")
+            snapshot_download = _import_modelscope_attr(
+                "modelscope", "snapshot_download"
+            )
         except (AttributeError, ImportError):
             try:
-                snapshot_download = _import_modelscope_attr("modelscope.hub.snapshot_download", "snapshot_download")
+                snapshot_download = _import_modelscope_attr(
+                    "modelscope.hub.snapshot_download", "snapshot_download"
+                )
             except (AttributeError, ImportError):
-                print("Error: modelscope is not installed or does not expose a supported download API.")
-                print("Install GUI dependencies with: pip install -r requirements.txt")
+                print(
+                    "Error: modelscope is not installed or does not expose a supported download API."
+                )
+                print("Install SAM3-GUI with: pip install -e .")
                 print("Or install it directly with: pip install modelscope")
                 return False
     else:
         snapshot_download = None
 
     output_path = _prepare_output_dir(output_dir)
-    resolved_model_id = model_id or os.environ.get("SAM31_MODELSCOPE_REPO") or SAM31_MODELSCOPE_REPO
+    resolved_model_id = (
+        model_id or os.environ.get("SAM31_MODELSCOPE_REPO") or SAM31_MODELSCOPE_REPO
+    )
     print(f"Downloading {resolved_model_id}/{SAM31_CHECKPOINT_NAME} from ModelScope")
     print(f"Output directory: {output_path}")
 
@@ -121,11 +147,17 @@ def download_sam31_from_modelscope(output_dir=None, model_id: str | None = None)
     except Exception as exc:
         print(f"\nError downloading SAM 3.1 checkpoint from ModelScope: {exc}")
         print("Verify the ModelScope repo contains sam3.1_multiplex.pt.")
-        print("If your mirror uses a different id, pass --modelscope_model_id <repo-id>.")
+        print(
+            "If your mirror uses a different id, pass --modelscope_model_id <repo-id>."
+        )
         return False
 
 
-def download_sam31_model(output_dir=None, source: str = SOURCE_HUGGINGFACE, modelscope_model_id: str | None = None) -> bool:
+def download_sam31_model(
+    output_dir=None,
+    source: str = SOURCE_HUGGINGFACE,
+    modelscope_model_id: str | None = None,
+) -> bool:
     if source == SOURCE_HUGGINGFACE:
         return download_sam31_from_huggingface(output_dir)
     if source == SOURCE_MODELSCOPE:

@@ -179,6 +179,7 @@ data_root/
 tracked_colors.mp4
 mask_output.npy
 *.npy
+runtime/
 
 # IDE and editor settings
 .claude/

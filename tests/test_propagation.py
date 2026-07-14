@@ -6,11 +6,15 @@ Corresponds to: native SAM3.1 propagation.
 
 import pytest
 
+pytestmark = pytest.mark.integration
+
 
 class TestPropagation:
     """Test video propagation functionality."""
 
-    def test_propagate_after_text_prompt(self, sam3_model, session_id, sample_text_prompt):
+    def test_propagate_after_text_prompt(
+        self, sam3_model, session_id, sample_text_prompt
+    ):
         """Test propagation after adding a text prompt."""
         # First add a text prompt
         sam3_model.handle_request(
@@ -21,22 +25,25 @@ class TestPropagation:
                 text=sample_text_prompt,
             )
         )
-        
+
         # Then propagate
         frame_count = 0
         for response in sam3_model.handle_stream_request(
             request=dict(
                 type="propagate_in_video",
                 session_id=session_id,
+                max_frame_num_to_track=2,
             )
         ):
             frame_count += 1
             assert "frame_index" in response
             assert "outputs" in response
-        
+
         assert frame_count > 0, "Should propagate through at least one frame"
 
-    def test_propagate_both_directions(self, sam3_model, session_id, sample_text_prompt):
+    def test_propagate_both_directions(
+        self, sam3_model, session_id, sample_text_prompt
+    ):
         """Test propagation in both directions."""
         # First add a text prompt
         sam3_model.handle_request(
@@ -47,7 +54,7 @@ class TestPropagation:
                 text=sample_text_prompt,
             )
         )
-        
+
         # Propagate both directions
         frame_indices = set()
         for response in sam3_model.handle_stream_request(
@@ -55,10 +62,11 @@ class TestPropagation:
                 type="propagate_in_video",
                 session_id=session_id,
                 propagation_direction="both",
+                max_frame_num_to_track=2,
             )
         ):
             frame_indices.add(response["frame_index"])
-        
+
         assert len(frame_indices) > 0
 
     def test_propagate_output_format(self, sam3_model, session_id, sample_text_prompt):
@@ -72,12 +80,13 @@ class TestPropagation:
                 text=sample_text_prompt,
             )
         )
-        
+
         # Check output format
         for response in sam3_model.handle_stream_request(
             request=dict(
                 type="propagate_in_video",
                 session_id=session_id,
+                max_frame_num_to_track=2,
             )
         ):
             outputs = response.get("outputs", {})

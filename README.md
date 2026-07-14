@@ -1,6 +1,6 @@
 # SAM3.1 GUI/API
 
-**English** | [简体中文](README_CN.md)
+**English** | [简体中文](docs/README_CN.md)
 
 Native GUI and HTTP API for **SAM 3.1 Object Multiplex** video and image segmentation. The app supports text, point, and box prompts through the latest SAM 3.1 request API from `facebookresearch/sam3`.
 
@@ -43,21 +43,23 @@ pip install -e ".[notebooks]"
 pip install -e ".[train,dev]"
 ```
 
-**Note for Blackwell RTX 50X0 GPUs:** these GPUs may require torchvision to be compiled from source if compatible prebuilt wheels are unavailable. See [blackwell_support.md](blackwell_support.md).
+**Note for Blackwell RTX 50X0 GPUs:** these GPUs may require torchvision to be compiled from source if compatible prebuilt wheels are unavailable. See [docs/blackwell_support.md](docs/blackwell_support.md).
 
 Install GUI/API dependencies:
 
 ```bash
-cd /home/wsy/SAM3-GUI
-pip install -r requirements.txt
+cd SAM3-GUI
+pip install -e .
 ```
+
+Install SAM3 first so the environment uses the correct CUDA-enabled PyTorch build. The package metadata also declares the direct Python dependencies needed by the GUI and API.
 
 ## Checkpoint
 
 SAM3-GUI uses `sam3.1_multiplex.pt` from the SAM 3.1 checkpoint repo. Hugging Face is the default source:
 
 ```bash
-python download_model.py --source huggingface
+python -m tools.download_model --source huggingface
 ```
 
 The Hugging Face checkpoint repo is gated, so request access first and authenticate locally:
@@ -69,13 +71,13 @@ hf auth login
 If Hugging Face is unavailable, use the ModelScope mirror:
 
 ```bash
-python download_model.py --source modelscope
+python -m tools.download_model --source modelscope
 ```
 
 Both routes store `sam3.1_multiplex.pt` under `~/sam3/model` by default. If your ModelScope mirror uses a different repo id, pass it explicitly:
 
 ```bash
-python download_model.py --source modelscope --modelscope_model_id <repo-id>
+python -m tools.download_model --source modelscope --modelscope_model_id <repo-id>
 ```
 
 The default ModelScope repo id is `facebook/sam3.1`, matching the ModelScope page for SAM 3.1. If no local checkpoint is provided, the backend lets SAM3 download `facebook/sam3.1` through its native loader on first model load.
@@ -83,14 +85,21 @@ The default ModelScope repo id is `facebook/sam3.1`, matching the ModelScope pag
 ## Start
 
 ```bash
-python cli.py --root_dir data_root --server_name 0.0.0.0 --port 8890
+sam3-gui data.root_dir=data_root server.port=8890
 ```
 
-Options:
+Common Hydra overrides:
 
-- `--checkpoint_path`: local `sam3.1_multiplex.pt` path
-- `--gpus`: comma-separated CUDA IDs; the SAM3.1 backend uses the first ID
-- `--vid_name`, `--img_name`, `--mask_name`: data subdirectory names
+- `sam.checkpoint_path=/path/to/sam3.1_multiplex.pt`
+- `sam.gpus=[0]`
+- `sam.use_fa3=true`
+- `data.vid_name=videos data.img_name=images data.mask_name=masks`
+
+`sam.use_fa3=true` runs a small FlashAttention 3 CUDA preflight before model loading. On RTX 5090/Blackwell, keep the default `false` unless FA3 was built with compatible sm_120 kernels. See [docs/blackwell_support.md](docs/blackwell_support.md).
+
+Defaults are composed from [sam3_gui/conf/config.yaml](sam3_gui/conf/config.yaml) and the `server`, `data`, and `sam` groups. Legacy flags such as `--root_dir`, `--port`, and `--use_fa3` still work, but new changes should prefer Hydra overrides.
+
+The server binds to `127.0.0.1` by default. For a trusted LAN or Tailscale deployment, explicitly set `server.name=0.0.0.0` and apply network-level access controls.
 
 The Gradio UI is mounted at `/`. API docs are available at `/docs`.
 
@@ -105,97 +114,33 @@ data_root/
 
 ## API
 
-Health:
+HTTP routes are documented in [docs/API.md](docs/API.md). OpenAPI is available at `/docs` when the server is running.
+
+Quick start:
 
 ```bash
 curl http://127.0.0.1:8890/api/health
-```
 
-Start a video/frame-folder session:
-
-```bash
-curl -X POST http://127.0.0.1:8890/api/sessions \
-  -H 'Content-Type: application/json' \
-  -d '{"resource_path":"/home/wsy/SAM3-GUI/data_root/images/Cam1_color"}'
-```
-
-Add a text prompt:
-
-```bash
-curl -X POST http://127.0.0.1:8890/api/prompts \
-  -H 'Content-Type: application/json' \
-  -d '{"session_id":"SESSION","frame_index":0,"text":"person","include_masks":false}'
-```
-
-Add point prompts using normalized coordinates:
-
-```bash
-curl -X POST http://127.0.0.1:8890/api/prompts \
-  -H 'Content-Type: application/json' \
-  -d '{"session_id":"SESSION","frame_index":0,"obj_id":0,"points":[[0.5,0.5]],"point_labels":[1]}'
-```
-
-Add a box prompt using normalized `[x, y, width, height]`:
-
-```bash
-curl -X POST http://127.0.0.1:8890/api/prompts \
-  -H 'Content-Type: application/json' \
-  -d '{"session_id":"SESSION","frame_index":0,"bounding_boxes":[[0.2,0.2,0.4,0.5]],"bounding_box_labels":[1]}'
-```
-
-For SAM 3.1 Object Multiplex, text grounding is the reliable way to create new objects. Box prompts are accepted as geometric guidance, but pure box-only prompts may return no objects on some videos. Use `text` plus `bounding_boxes` when starting an object from a video frame:
-
-```bash
-curl -X POST http://127.0.0.1:8890/api/prompts \
-  -H 'Content-Type: application/json' \
-  -d '{"session_id":"SESSION","frame_index":0,"text":"vehicle","bounding_boxes":[[0.4094,0.8184,0.3274,0.1816]],"bounding_box_labels":[1],"include_masks":false}'
-```
-
-Propagate:
-
-```bash
-curl -X POST http://127.0.0.1:8890/api/propagate \
-  -H 'Content-Type: application/json' \
-  -d '{"session_id":"SESSION","propagation_direction":"both","include_masks":false}'
-```
-
-Remove an object:
-
-```bash
-curl -X POST http://127.0.0.1:8890/api/objects/remove \
-  -H 'Content-Type: application/json' \
-  -d '{"session_id":"SESSION","obj_id":0}'
-```
-
-Close a session:
-
-```bash
-curl -X DELETE http://127.0.0.1:8890/api/sessions/SESSION
-```
-
-Segment one uploaded image:
-
-```bash
 curl -X POST http://127.0.0.1:8890/api/images/segment \
   -F file=@/path/to/image.jpg \
   -F text=person
 ```
 
-Mask outputs are COCO RLE when `include_masks` is true.
+For session-based video tracking, prompt/propagate examples, and the full `/api/images/segment` parameter reference, see [docs/API.md](docs/API.md).
 
 ## Tests
 
 Run the offline suite first. It covers the API surface, launcher/configuration, checkpoint guardrails, mask serialization, and UI handler request shapes without loading the checkpoint:
 
 ```bash
-cd /home/wsy/SAM3-GUI
-/home/wsy/miniconda3/envs/sam3/bin/python -m pytest -q tests
+pip install -e ".[test]"
+python -m pytest -q tests
 ```
 
 Tests that need real SAM 3.1 inference are skipped unless `~/sam3/model/sam3.1_multiplex.pt` exists. To run the full integration path, download or place the checkpoint, then run the same command. To let SAM3 download during tests instead of using a local file:
 
 ```bash
-SAM3_ALLOW_HF_DOWNLOAD=1 /home/wsy/miniconda3/envs/sam3/bin/python -m pytest -q tests
+SAM3_ALLOW_HF_DOWNLOAD=1 python -m pytest -q tests
 ```
 
 Use `SAM3_CHECKPOINT_PATH=/path/to/sam3.1_multiplex.pt` for a custom checkpoint location.
@@ -203,8 +148,8 @@ Use `SAM3_CHECKPOINT_PATH=/path/to/sam3.1_multiplex.pt` for a custom checkpoint 
 Focused real-inference checks used during development:
 
 ```bash
-SAM3_CHECKPOINT_PATH=/home/wsy/sam3/model/sam3.1_multiplex.pt \
-/home/wsy/miniconda3/envs/sam3/bin/python -m pytest -q \
+SAM3_CHECKPOINT_PATH=~/sam3/model/sam3.1_multiplex.pt \
+python -m pytest -q \
 tests/test_integration_sam31_gui_api.py::test_native_sam31_real_mp4_text_box_prompt_smoke -s
 ```
 
@@ -216,11 +161,18 @@ Video mode supports text, point, and box prompts on frame folders or extracted v
 
 Saved masks are written to `{root_dir}/masks/{sequence_name}/` as color PNGs and index-mask `.npy` files.
 
+## Docs
+
+- [HTTP API](docs/API.md)
+- [中文说明](docs/README_CN.md)
+- [Changelog](docs/CHANGELOG.md)
+- [Blackwell GPU notes](docs/blackwell_support.md)
+
 ## Verified Behavior
 
-![SAM3 GUI Video Mode](asset/sam3_1.png)
+![SAM3 GUI Video Mode](docs/assets/sam3_1.png)
 
-![SAM3 GUI Image Mode](asset/sam3_2.png)
+![SAM3 GUI Image Mode](docs/assets/sam3_2.png)
 
 - Real image sessions detect ordinary online images such as `car` and `dog` with high confidence.
 - Real `.mp4` sessions load through OpenCV frame decoding and propagate tracked objects after a successful prompt.

@@ -44,6 +44,16 @@ print(roi_align(x, r, (7, 7), 1.0, 2, aligned=True).shape)
 - `torchvision 0.26.0a0+4b0a90c` with sm_120 kernels
 - Box segmentation works on RTX 5090
 
+## FlashAttention 3
+
+`sam.use_fa3=true` is separate from `torchvision`. On RTX 5090, the installed FA3 binary must also include sm_120 kernels. If it does not, SAM3-GUI fails early with:
+
+```text
+sam.use_fa3=true was requested, but the installed FlashAttention 3 CUDA kernel does not run on ...
+```
+
+Keep the default `sam.use_fa3=false` until this probe passes, or rebuild/replace FA3 for the local CUDA and GPU architecture.
+
 ---
 
 **Note**: Format must be `12.0` (major.minor), not `sm_120`.

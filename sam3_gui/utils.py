@@ -115,7 +115,9 @@ def draw_points(img, points, labels, point_frames=None, current_frame=None):
     return out
 
 
-def get_hls_palette(n_colors: int, lightness: float = 0.5, saturation: float = 0.7) -> np.ndarray:
+def get_hls_palette(
+    n_colors: int, lightness: float = 0.5, saturation: float = 0.7
+) -> np.ndarray:
     hues = np.linspace(0, 1, int(n_colors) + 1)[1:-1]
     palette = [(0.0, 0.0, 0.0)] + [
         colorsys.hls_to_rgb(h_i, lightness, saturation) for h_i in hues
@@ -133,19 +135,19 @@ def colorize_masks(images, index_masks, fac: float = 0.5):
         return [], []
     max_idx = max(mask.max() for mask in index_masks)
     palette = get_hls_palette(max_idx + 1)
-    
+
     # Pre-allocate output list
     color_masks = []
     out_frames = []
-    
+
     for img, mask in zip(images, index_masks):
         clr_mask = palette[mask.astype("int")]
         color_masks.append(clr_mask)
-        
+
         # Fast alpha blending via OpenCV
         out_f = cv2.addWeighted(img, fac, clr_mask, 1.0 - fac, 0.0)
         out_frames.append(out_f)
-        
+
     return out_frames, color_masks
 
 
@@ -161,11 +163,15 @@ def get_video_resolution(video_path):
     try:
         cmd = [
             "ffprobe",
-            "-v", "error",
-            "-select_streams", "v:0",
-            "-show_entries", "stream=width,height",
-            "-of", "json",
-            video_path
+            "-v",
+            "error",
+            "-select_streams",
+            "v:0",
+            "-show_entries",
+            "stream=width,height",
+            "-of",
+            "json",
+            video_path,
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         data = json.loads(result.stdout)
@@ -190,10 +196,13 @@ def get_video_duration(video_path):
     try:
         cmd = [
             "ffprobe",
-            "-v", "error",
-            "-show_entries", "format=duration",
-            "-of", "default=noprint_wrappers=1:nokey=1",
-            video_path
+            "-v",
+            "error",
+            "-show_entries",
+            "format=duration",
+            "-of",
+            "default=noprint_wrappers=1:nokey=1",
+            video_path,
         ]
         result = subprocess.run(cmd, capture_output=True, text=True, check=True)
         duration = float(result.stdout.strip())
@@ -218,13 +227,6 @@ def get_downsampling_choices(resolution):
     else:
         original_label = "Original"
 
-    choices = [
-        original_label,
-        "Half",
-        "Quarter",
-        "Sixth",
-        "Eighth",
-        "Sixteenth"
-    ]
+    choices = [original_label, "Half", "Quarter", "Sixth", "Eighth", "Sixteenth"]
 
     return choices, original_label

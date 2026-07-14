@@ -1,0 +1,4 @@
+root_dir: data_root
+vid_name: videos
+img_name: images
+mask_name: masks

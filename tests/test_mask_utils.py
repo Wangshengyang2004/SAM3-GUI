@@ -1,23 +1,18 @@
 """
 Tests for mask utility functions.
 
-Corresponds to: mask_app.py -> make_index_mask(), colorize_masks(), compose_img_mask()
+Corresponds to sam3_gui.video_handler.VideoModeHandler.make_index_mask
+and helpers in sam3_gui.utils.
 """
 
 import numpy as np
-import pytest
-import sys
-import os
 
-# Add parent directory to path
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-
-from utils import (
+from sam3_gui.utils import (
     get_hls_palette,
     colorize_masks,
     compose_img_mask,
 )
-from video_handler import VideoModeHandler
+from sam3_gui.video_handler import VideoModeHandler
 
 
 class TestMakeIndexMask:
@@ -27,12 +22,12 @@ class TestMakeIndexMask:
         """Test make_index_mask with a single mask."""
         gui = VideoModeHandler.__new__(VideoModeHandler)
         gui.image = np.zeros((100, 100, 3), dtype=np.uint8)
-        
+
         masks = {0: np.zeros((100, 100), dtype=bool)}
         masks[0][20:40, 20:40] = True
-        
+
         result = gui.make_index_mask(masks)
-        
+
         assert result.shape == (100, 100)
         assert result.dtype == np.uint8
         assert result[30, 30] == 1  # Inside mask region
@@ -42,16 +37,16 @@ class TestMakeIndexMask:
         """Test make_index_mask with multiple masks."""
         gui = VideoModeHandler.__new__(VideoModeHandler)
         gui.image = np.zeros((100, 100, 3), dtype=np.uint8)
-        
+
         masks = {
             0: np.zeros((100, 100), dtype=bool),
             1: np.zeros((100, 100), dtype=bool),
         }
         masks[0][10:30, 10:30] = True
         masks[1][50:70, 50:70] = True
-        
+
         result = gui.make_index_mask(masks)
-        
+
         assert result.shape == (100, 100)
         assert result[20, 20] == 1  # First mask
         assert result[60, 60] == 2  # Second mask
@@ -61,10 +56,10 @@ class TestMakeIndexMask:
         """Test make_index_mask with empty masks dict."""
         gui = VideoModeHandler.__new__(VideoModeHandler)
         gui.image = np.zeros((100, 100, 3), dtype=np.uint8)
-        
+
         masks = {}
         result = gui.make_index_mask(masks)
-        
+
         assert result.shape == (100, 100)
         assert result.max() == 0  # All background
 
@@ -72,10 +67,10 @@ class TestMakeIndexMask:
         """Test make_index_mask with empty masks and no image."""
         gui = VideoModeHandler.__new__(VideoModeHandler)
         gui.image = None
-        
+
         masks = {}
         result = gui.make_index_mask(masks)
-        
+
         assert result.shape == (1, 1)
         assert result.max() == 0
 
@@ -87,7 +82,7 @@ class TestColorPalette:
         """Test that palette has correct number of colors."""
         palette = get_hls_palette(5)
         assert len(palette) == 5
-        
+
     def test_get_hls_palette_first_is_black(self):
         """Test that first color is black (background)."""
         palette = get_hls_palette(5)
@@ -106,9 +101,9 @@ class TestColorize:
         """Test that colorize_masks returns correct shapes."""
         images = [np.zeros((100, 100, 3), dtype=np.uint8)]
         index_masks = [np.zeros((100, 100), dtype=np.uint8)]
-        
+
         out_frames, color_masks = colorize_masks(images, index_masks)
-        
+
         assert len(out_frames) == 1
         assert len(color_masks) == 1
         assert out_frames[0].shape == (100, 100, 3)
@@ -119,9 +114,9 @@ class TestColorize:
         img = np.ones((100, 100, 3), dtype=np.uint8) * 255
         color_mask = np.zeros((100, 100, 3), dtype=np.uint8)
         color_mask[:, :, 0] = 255  # Red mask
-        
+
         result = compose_img_mask(img, color_mask, fac=0.5)
-        
+
         assert result.shape == (100, 100, 3)
         assert result.dtype == np.uint8
 
@@ -133,10 +128,10 @@ class TestNormalizePoints:
         """Test _normalize_points method."""
         gui = VideoModeHandler.__new__(VideoModeHandler)
         gui.image = np.zeros((480, 640, 3), dtype=np.uint8)  # 640x480 image
-        
+
         points = [[320, 240]]  # Center of image in pixels
         normalized = gui._normalize_points(points)
-        
+
         assert len(normalized) == 1
         assert abs(normalized[0][0] - 0.5) < 0.01  # x should be ~0.5
         assert abs(normalized[0][1] - 0.5) < 0.01  # y should be ~0.5
@@ -145,10 +140,10 @@ class TestNormalizePoints:
         """Test _normalize_points with no image set."""
         gui = VideoModeHandler.__new__(VideoModeHandler)
         gui.image = None
-        
+
         points = [[100, 100]]
         result = gui._normalize_points(points)
-        
+
         # Should return unchanged
         assert result == points
 
@@ -156,10 +151,10 @@ class TestNormalizePoints:
         """Test _normalize_points with multiple points."""
         gui = VideoModeHandler.__new__(VideoModeHandler)
         gui.image = np.zeros((100, 200, 3), dtype=np.uint8)  # 200x100 image
-        
+
         points = [[0, 0], [200, 100], [100, 50]]
         normalized = gui._normalize_points(points)
-        
+
         assert len(normalized) == 3
         assert normalized[0] == [0.0, 0.0]
         assert normalized[1] == [1.0, 1.0]

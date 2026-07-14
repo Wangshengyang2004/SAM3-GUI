@@ -2,7 +2,6 @@ import torch as th
 from dataclasses import dataclass
 import numpy as np
 import cv2
-from PIL import Image, ImageDraw
 import os
 import matplotlib.pyplot as plt
 import argparse
@@ -10,14 +9,22 @@ import glob
 import re
 from concurrent.futures import ThreadPoolExecutor
 
+from tools.paths import (
+    OUTPUT_DIR,
+    ensure_output_dir,
+    image_sequence_dir,
+    mask_sequence_dir,
+)
+
 inverse_transparency = False
+
 
 def detect_frame_count(name):
     """
     Auto-detect the number of frames in a video directory.
     Returns the count of frames (assumes consecutive numbering from 1).
     """
-    base_path = f"/home/simonwsy/SAM3-GUI/data_root/images/{name}"
+    base_path = image_sequence_dir(name)
     if not os.path.exists(base_path):
         raise ValueError(f"Video directory not found: {base_path}")
 
@@ -29,7 +36,7 @@ def detect_frame_count(name):
     # Extract numbers from filenames (format: 00001.jpg)
     numbers = []
     for f in files:
-        match = re.search(r'(\d+)\.jpg$', os.path.basename(f))
+        match = re.search(r"(\d+)\.jpg$", os.path.basename(f))
         if match:
             numbers.append(int(match.group(1)))
 
@@ -38,13 +45,13 @@ def detect_frame_count(name):
 
     return max(numbers)
 
+
 def get_video_frames(video_path, indices):
     """
     Load frames from image directory instead of video file
     video_path: path relative to data_root/images/
     """
-    base_path = "/home/simonwsy/SAM3-GUI/data_root/images"
-    full_path = f"{base_path}/{video_path}"
+    full_path = image_sequence_dir(video_path)
 
     frames = []
     for idx in indices:
@@ -58,18 +65,19 @@ def get_video_frames(video_path, indices):
     print(f"Loaded {len(frames)} frames from {full_path}")
     return frames
 
+
 def get_masks(name, indices):
     """
     Load masks from data_root/masks directory
     name: path relative to data_root/masks/
     """
-    base_path = "/home/simonwsy/SAM3-GUI/data_root/masks"
+    base_path = mask_sequence_dir(name)
     masks = []
     for i in indices:
-        mask = np.load(f"{base_path}/{name}/{str(i).zfill(5)}.npy")
+        mask = np.load(os.path.join(base_path, f"{str(i).zfill(5)}.npy"))
         masks.append(mask)
 
-    print(f"Loaded {len(masks)} masks from {base_path}/{name}")
+    print(f"Loaded {len(masks)} masks from {base_path}")
     return masks
 
 
@@ -81,15 +89,16 @@ class Config:
     name: str = ""
     background: str = None
 
+
 def merge(cfg: Config):
     # Create output directory
-    os.makedirs("output", exist_ok=True)
+    ensure_output_dir()
 
     indices = np.arange(cfg.start, cfg.end, cfg.interval, dtype=int)
-    
-    base_img_path = f"/home/simonwsy/SAM3-GUI/data_root/images/{cfg.name}"
-    base_mask_path = f"/home/simonwsy/SAM3-GUI/data_root/masks/{cfg.name}"
-    
+
+    base_img_path = image_sequence_dir(cfg.name)
+    base_mask_path = mask_sequence_dir(cfg.name)
+
     image_paths = [f"{base_img_path}/{str(i).zfill(5)}.jpg" for i in indices]
     mask_paths = [f"{base_mask_path}/{str(i).zfill(5)}.npy" for i in indices]
 
@@ -102,20 +111,21 @@ def merge(cfg: Config):
 
     # Save output
     name = cfg.name.split("/")[-1]
-    output_path = f"output/{name}_merged_nocover.png"
+    output_path = os.path.join(OUTPUT_DIR, f"{name}_merged_nocover.png")
     cv2.imwrite(output_path, img)
     print(f"Saved merged image to {output_path}")
+
 
 def get_background(name, back):
     if back is None:
         return None
     # Try loading from images directory
-    img = cv2.imread(f"/home/simonwsy/SAM3-GUI/data_root/images/{name}/{back}")
+    img = cv2.imread(os.path.join(image_sequence_dir(name), back))
     if img is None:
         print(f"Warning: Could not load background {back}")
     return img
-    
-    
+
+
 def _load_image(path):
     """Helper to load and preprocess image"""
     img = cv2.imread(path)
@@ -140,7 +150,9 @@ def find_last_valid_mask(masks):
     Returns the index of last valid mask.
     """
     for i in range(len(masks) - 1, -1, -1):
-        if masks[i] is not None and masks[i].max() > 0.01:  # Has significant mask content
+        if (
+            masks[i] is not None and masks[i].max() > 0.01
+        ):  # Has significant mask content
             return i
     return len(masks) - 1  # Default to last if all are empty
 
@@ -157,7 +169,7 @@ def merge_masked_images(image_paths, mask_paths, background=None, chunk_size=32)
         image_paths = list(reversed(image_paths))
         mask_paths = list(reversed(mask_paths))
 
-    device = th.device('cuda' if th.cuda.is_available() else 'cpu')
+    device = th.device("cuda" if th.cuda.is_available() else "cpu")
 
     # Load last image for background (single read)
     last_img = _load_image(image_paths[-1])
@@ -184,7 +196,11 @@ def merge_masked_images(image_paths, mask_paths, background=None, chunk_size=32)
     print("Detecting mask range...")
     sample_indices = list(range(0, total_frames, max(1, total_frames // 100)))
     sample_masks = [_load_mask(mask_paths[i]) for i in sample_indices]
-    valid_sample_indices = [i for i, m in zip(sample_indices, sample_masks) if m is not None and m.max() > 0.01]
+    valid_sample_indices = [
+        i
+        for i, m in zip(sample_indices, sample_masks)
+        if m is not None and m.max() > 0.01
+    ]
 
     if valid_sample_indices:
         first_mask_idx = min(valid_sample_indices)
@@ -239,7 +255,11 @@ def merge_masked_images(image_paths, mask_paths, background=None, chunk_size=32)
             trans = transparent_factors[global_idx]
             new = mask_binary * mix_factor
             remain = 1 - new
-            combined = combined * remain + img_t * new * trans + background_t * new * (1 - trans)
+            combined = (
+                combined * remain
+                + img_t * new * trans
+                + background_t * new * (1 - trans)
+            )
 
         if chunk_end % 50 == 0 or chunk_end == total_frames:
             print(f"Merged {chunk_end}/{total_frames} frames")
@@ -251,39 +271,66 @@ def merge_masked_images(image_paths, mask_paths, background=None, chunk_size=32)
     result = combined.cpu().numpy()
     return np.clip(result, 0, 255).astype(np.uint8)
 
+
 def save_frames(cfg):
     indices = np.arange(cfg.start, cfg.end, cfg.interval, dtype=int)
     frames = get_video_frames(f"{cfg.name}_frames", indices)
     # save frames in a folder
-    os.makedirs(f"videos/{cfg.name}_frames", exist_ok=True)
+    frame_output_dir = ensure_output_dir("videos", f"{cfg.name}_frames")
     # remove all images end with png in the folder
-    for f in os.listdir(f"videos/{cfg.name}_frames"):
+    for f in os.listdir(frame_output_dir):
         if f.endswith(".png"):
-            os.remove(os.path.join(f"videos/{cfg.name}_frames", f))
+            os.remove(os.path.join(frame_output_dir, f))
     for i, frame in zip(indices, frames):
-        cv2.imwrite(f"videos/{cfg.name}_frames/{str(i).zfill(5)}.png", frame)
-    print(f"Saved frames to videos/{cfg.name}_frames/")
+        cv2.imwrite(os.path.join(frame_output_dir, f"{str(i).zfill(5)}.png"), frame)
+    print(f"Saved frames to {frame_output_dir}/")
     return frames
-    
+
 
 def main():
     global inverse_transparency
 
-    parser = argparse.ArgumentParser(description="Merge masked video frames into a single composite image")
-    parser.add_argument("name", nargs="?", default="Sky_color",
-                        help="Video name (subdirectory in data_root/images and data_root/masks)")
-    parser.add_argument("-s", "--start", type=int, default=1,
-                        help="Start frame index (default: 1)")
-    parser.add_argument("-i", "--interval", type=int, default=1,
-                        help="Frame interval/step (default: 1)")
-    parser.add_argument("-e", "--end", type=int, default=None,
-                        help="End frame index (default: auto-detect)")
-    parser.add_argument("-b", "--background", type=str, default=None,
-                        help="Background image filename (optional)")
-    parser.add_argument("-r", "--reverse", action="store_true",
-                        help="Reverse the order of frames (inverse_transparency)")
-    parser.add_argument("-p", "--plot", action="store_true",
-                        help="Display the result with matplotlib after saving")
+    parser = argparse.ArgumentParser(
+        description="Merge masked video frames into a single composite image"
+    )
+    parser.add_argument(
+        "name",
+        nargs="?",
+        default="Sky_color",
+        help="Video name (subdirectory in data_root/images and data_root/masks)",
+    )
+    parser.add_argument(
+        "-s", "--start", type=int, default=1, help="Start frame index (default: 1)"
+    )
+    parser.add_argument(
+        "-i", "--interval", type=int, default=1, help="Frame interval/step (default: 1)"
+    )
+    parser.add_argument(
+        "-e",
+        "--end",
+        type=int,
+        default=None,
+        help="End frame index (default: auto-detect)",
+    )
+    parser.add_argument(
+        "-b",
+        "--background",
+        type=str,
+        default=None,
+        help="Background image filename (optional)",
+    )
+    parser.add_argument(
+        "-r",
+        "--reverse",
+        action="store_true",
+        help="Reverse the order of frames (inverse_transparency)",
+    )
+    parser.add_argument(
+        "-p",
+        "--plot",
+        action="store_true",
+        help="Display the result with matplotlib after saving",
+    )
 
     args = parser.parse_args()
 
@@ -306,7 +353,7 @@ def main():
         interval=args.interval,
         end=end + 1,  # +1 because range is exclusive at end
         name=args.name,
-        background=args.background
+        background=args.background,
     )
 
     print(f"Processing frames {cfg.start} to {end} with interval {cfg.interval}")
@@ -314,16 +361,19 @@ def main():
 
     # Plot if requested
     if args.plot:
-        output_path = f"output/{args.name.split('/')[-1]}_merged_nocover.png"
+        output_path = os.path.join(
+            OUTPUT_DIR, f"{args.name.split('/')[-1]}_merged_nocover.png"
+        )
         if os.path.exists(output_path):
             img = cv2.imread(output_path)
             img = cv2.cvtColor(img, cv2.COLOR_BGR2RGB)
             plt.figure(figsize=(12, 8))
             plt.imshow(img)
             plt.title(f"Merged: {args.name}")
-            plt.axis('off')
+            plt.axis("off")
             plt.tight_layout()
             plt.show()
+
 
 if __name__ == "__main__":
     main()

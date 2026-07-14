@@ -1,0 +1,6 @@
+defaults:
+  - config_schema
+  - server: default
+  - data: default
+  - sam: default
+  - _self_

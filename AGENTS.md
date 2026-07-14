@@ -1,18 +1,20 @@
 # Repository Guidelines
 
 ## Project Structure & Module Organization
-- `mask_app.py`: main Gradio application and SAM3 interaction logic (video/image session handling, prompts, mask export).
+- `sam3_gui/`: application package containing the Gradio UI, FastAPI routes, SAM 3.1 backend, handlers, config loader, and utilities.
+- `cli.py`: root launcher; accepts Hydra overrides such as `server.port=8891 sam.use_fa3=true`.
+- `sam3_gui/conf/`: packaged Hydra configuration; `config.yaml` composes `server`, `data`, and `sam` groups.
 - `tests/`: pytest suite for model loading, prompt flow, propagation, and mask utilities (`test_*.py`).
 - `data_root/`: sample input/output layout (`videos/`, `images/`, `masks/`) used for local runs and test fixtures.
-- `asset/`: documentation assets (for example, UI screenshots).
-- `images/`, `masks/`, `videos/`: local runtime artifacts; treat as working data, not primary source code.
+- `docs/`: secondary documentation, localized README, changelog, hardware notes, and screenshot assets.
+- `runtime/`: ignored local logs and generated outputs; treat as working data, not source code.
 
 ## Build, Test, and Development Commands
 - Install dependencies:
   - `pip install -r requirements.txt`
-  - Install SAM3 first (required): `pip install -e /path/to/sam3`
+  - Install SAM3 with SAM 3.1 support first (required): `pip install -e /path/to/sam3`
 - Run the app locally:
-  - `python mask_app.py --root_dir data_root --port 8890`
+  - `python cli.py data.root_dir=data_root server.port=8890`
 - Run tests:
   - `pytest -q`
   - Single file: `pytest tests/test_mask_utils.py -q`
@@ -26,7 +28,7 @@
 ## Testing Guidelines
 - Framework: `pytest` with shared fixtures in `tests/conftest.py`.
 - Name tests as `test_*` and group related behavior in `Test*` classes.
-- Integration tests depend on SAM3 and may use CUDA if available.
+- Integration tests depend on SAM 3.1 and may use CUDA if available.
 - Set these environment variables when needed:
   - `SAM3_CHECKPOINT_PATH` for model checkpoint location
   - `SAM3_TEST_IMG_DIR` for fixture image directory
@@ -38,4 +40,4 @@
   - What changed and why
   - How to validate (`pytest -q`, manual GUI flow)
   - Screenshots/GIFs for UI behavior changes
-  - Notes on SAM3/model/data assumptions
+  - Notes on SAM 3.1/model/data assumptions

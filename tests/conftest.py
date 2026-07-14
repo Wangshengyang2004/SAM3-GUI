@@ -5,7 +5,6 @@ Shared pytest fixtures for SAM3-GUI tests.
 import os
 import sys
 
-import numpy as np
 import pytest
 
 GUI_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -18,13 +17,15 @@ sys.path.insert(0, SAM3_REPO_ROOT)
 
 # Configuration
 DEFAULT_CHECKPOINT_PATH = os.environ.get(
-    "SAM3_CHECKPOINT_PATH", 
-    os.path.expanduser("~/sam3/model/sam3.1_multiplex.pt")
+    "SAM3_CHECKPOINT_PATH", os.path.expanduser("~/sam3/model/sam3.1_multiplex.pt")
 )
-ALLOW_HF_DOWNLOAD = os.environ.get("SAM3_ALLOW_HF_DOWNLOAD", "").lower() in {"1", "true", "yes"}
+ALLOW_HF_DOWNLOAD = os.environ.get("SAM3_ALLOW_HF_DOWNLOAD", "").lower() in {
+    "1",
+    "true",
+    "yes",
+}
 DEFAULT_TEST_IMG_DIR = os.environ.get(
-    "SAM3_TEST_IMG_DIR",
-    os.path.join(GUI_ROOT, "data_root/images/Cam1_color")
+    "SAM3_TEST_IMG_DIR", os.path.join(GUI_ROOT, "data_root/images/Cam1_color")
 )
 DEFAULT_TEST_VIDEO_PATH = os.environ.get(
     "SAM3_TEST_VIDEO_PATH",
@@ -40,7 +41,7 @@ def _resolve_sam31_checkpoint() -> str | None:
         return None
     pytest.skip(
         "SAM 3.1 checkpoint not found at "
-        f"{checkpoint_path}. Run download_model.py, set SAM3_CHECKPOINT_PATH, "
+        f"{checkpoint_path}. Run python -m tools.download_model, set SAM3_CHECKPOINT_PATH, "
         "or set SAM3_ALLOW_HF_DOWNLOAD=1 for online Hugging Face download."
     )
 
@@ -53,16 +54,29 @@ def require_sam31_checkpoint() -> str | None:
 
 @pytest.fixture(scope="session")
 def sam3_model():
-    """Load SAM3 video predictor once for all tests."""
+    """Load a SAM 3.1 video predictor once for all tests."""
+    from sam3_gui.sam31_backend import (
+        Sam31BackendConfig,
+        make_predictor_init_state_compatible,
+    )
     from sam3.model_builder import build_sam3_predictor
 
+    backend_config = Sam31BackendConfig()
     model = build_sam3_predictor(
         version="sam3.1",
         checkpoint_path=_resolve_sam31_checkpoint(),
+        max_num_objects=backend_config.max_num_objects,
+        multiplex_count=backend_config.multiplex_count,
+        compile=backend_config.compile_model,
+        warm_up=backend_config.warm_up,
+        use_fa3=backend_config.use_fa3,
+        use_rope_real=backend_config.use_rope_real,
+        async_loading_frames=backend_config.async_loading_frames,
     )
-    
+    make_predictor_init_state_compatible(model)
+
     yield model
-    
+
     try:
         model.shutdown()
     except Exception:
@@ -81,7 +95,7 @@ def test_img_dir():
 @pytest.fixture(scope="session")
 def test_images(test_img_dir):
     """List of test image paths."""
-    valid_extensions = {'.jpg', '.jpeg', '.png'}
+    valid_extensions = {".jpg", ".jpeg", ".png"}
     images = [
         os.path.join(test_img_dir, f)
         for f in sorted(os.listdir(test_img_dir))
@@ -102,7 +116,7 @@ def test_video_path():
 
 @pytest.fixture
 def session_id(sam3_model, test_img_dir):
-    """Create a fresh SAM3 session for each test."""
+    """Create a fresh SAM 3.1 session for each test."""
     response = sam3_model.handle_request(
         request=dict(
             type="start_session",
@@ -110,9 +124,9 @@ def session_id(sam3_model, test_img_dir):
         )
     )
     session_id = response["session_id"]
-    
+
     yield session_id
-    
+
     try:
         sam3_model.handle_request(
             request=dict(

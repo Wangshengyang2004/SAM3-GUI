@@ -7,6 +7,8 @@ Corresponds to: native SAM3.1 predictor loading.
 import pytest
 import torch
 
+pytestmark = pytest.mark.integration
+
 
 class TestModelLoading:
     """Test SAM3 model loading."""
@@ -25,10 +27,10 @@ class TestModelLoading:
 
     def test_model_has_handle_request(self, sam3_model):
         """Test that model has the handle_request method."""
-        assert hasattr(sam3_model, 'handle_request')
+        assert hasattr(sam3_model, "handle_request")
         assert callable(sam3_model.handle_request)
 
     def test_model_has_handle_stream_request(self, sam3_model):
         """Test that model has the handle_stream_request method."""
-        assert hasattr(sam3_model, 'handle_stream_request')
+        assert hasattr(sam3_model, "handle_stream_request")
         assert callable(sam3_model.handle_stream_request)

@@ -1,0 +1,5 @@
+checkpoint_path: null
+checkpoint_candidates:
+  - ~/sam3/model/sam3.1_multiplex.pt
+gpus: []
+use_fa3: false

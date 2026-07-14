@@ -1,10 +1,12 @@
 import os
+from pathlib import Path
+from uuid import uuid4
 
 import imageio.v2 as iio
 import numpy as np
 from loguru import logger as guru
 
-from sam31_backend import (
+from sam3_gui.sam31_backend import (
     Sam31Backend,
     index_mask_from_obj_masks,
     normalize_points,
@@ -12,16 +14,24 @@ from sam31_backend import (
     output_masks_by_obj,
     validate_sam31_checkpoint_path,
 )
-from utils import colorize_masks, isimage
+from sam3_gui.paths import runtime_output_path
+from sam3_gui.utils import colorize_masks, isimage
 
 
 class VideoModeHandler:
     """Native SAM 3.1 video segmentation and tracking handler."""
 
-    def __init__(self, checkpoint_path=None, gpus_to_use=None, backend: Sam31Backend | None = None):
+    def __init__(
+        self,
+        checkpoint_path=None,
+        gpus_to_use=None,
+        backend: Sam31Backend | None = None,
+    ):
         self.backend = backend or Sam31Backend()
         if checkpoint_path is not None:
-            self.backend.config.checkpoint_path = validate_sam31_checkpoint_path(checkpoint_path)
+            self.backend.config.checkpoint_path = validate_sam31_checkpoint_path(
+                checkpoint_path
+            )
         if gpus_to_use:
             self.backend.config.device_id = gpus_to_use[0]
 
@@ -43,6 +53,9 @@ class VideoModeHandler:
         self.img_paths = []
         self.current_text_prompt = None
         self.text_prompt_frame_idx = 0
+        self.box_prompts = []
+        self.removed_object_ids = set()
+        self.tracking_output_path = None
 
     @property
     def inference_state(self):
@@ -52,7 +65,7 @@ class VideoModeHandler:
         self.backend.ensure_predictor()
 
     def _resize_mask(self, mask, target_h, target_w):
-        from sam31_backend import resize_mask
+        from sam3_gui.sam31_backend import resize_mask
 
         return resize_mask(mask, target_h, target_w)
 
@@ -66,12 +79,111 @@ class VideoModeHandler:
         fallback = self.image.shape[:2] if self.image is not None else (1, 1)
         return index_mask_from_obj_masks(masks, fallback)
 
+    def _invalidate_tracking_results(self):
+        self.index_masks_all = []
+        self.color_masks_all = []
+        if self.tracking_output_path:
+            try:
+                Path(self.tracking_output_path).unlink(missing_ok=True)
+            except OSError as exc:
+                guru.debug(f"Ignoring tracked video cleanup error: {exc}")
+        self.tracking_output_path = None
+
+    def _frame_shape(self, frame_idx: int):
+        if frame_idx == self.frame_index and self.image is not None:
+            return self.image.shape[:2]
+        if 0 <= frame_idx < len(self.img_paths):
+            return iio.imread(self.img_paths[frame_idx]).shape[:2]
+        if self.image is not None:
+            return self.image.shape[:2]
+        return 1, 1
+
+    def _record_outputs(self, response, frame_idx: int):
+        target_shape = self._frame_shape(frame_idx)
+        masks = output_masks_by_obj(response.get("outputs"), target_shape=target_shape)
+        self.cur_masks.update(masks)
+        return masks
+
+    def _replay_prompt_state(self):
+        if self.session_id is None:
+            self.cur_masks.clear()
+            return {}
+
+        self.backend.reset_session(self.session_id)
+        self.cur_masks.clear()
+        latest_masks = {}
+
+        if self.current_text_prompt:
+            response = self.backend.add_prompt(
+                self.session_id,
+                self.text_prompt_frame_idx,
+                text=self.current_text_prompt,
+            )
+            latest_masks = self._record_outputs(response, self.text_prompt_frame_idx)
+
+        for prompt in self.box_prompts:
+            response = self.backend.add_prompt(
+                self.session_id,
+                prompt["frame_idx"],
+                bounding_boxes=[prompt["box_xywh"]],
+                bounding_box_labels=[1],
+            )
+            masks = self._record_outputs(response, prompt["frame_idx"])
+            prompt["obj_ids"] = set(masks)
+            latest_masks = masks
+
+        point_groups = {}
+        for point, label, frame_idx, obj_id in zip(
+            self.selected_points,
+            self.selected_labels,
+            self.selected_point_frames,
+            self.selected_point_obj_ids,
+        ):
+            point_groups.setdefault((frame_idx, obj_id), []).append((point, label))
+
+        for (frame_idx, obj_id), points_and_labels in point_groups.items():
+            height, width = self._frame_shape(frame_idx)
+            points = np.asarray(
+                [point for point, _ in points_and_labels], dtype=np.float32
+            )
+            labels = np.asarray(
+                [label for _, label in points_and_labels], dtype=np.int32
+            )
+            response = self.backend.add_prompt(
+                self.session_id,
+                frame_idx,
+                obj_id=obj_id,
+                points=normalize_points(points, width, height),
+                point_labels=labels.tolist(),
+                clear_old_points=True,
+                rel_coordinates=True,
+            )
+            latest_masks = self._record_outputs(response, frame_idx)
+
+        for obj_id in sorted(self.removed_object_ids):
+            if obj_id not in self.cur_masks:
+                continue
+            response = self.backend.remove_object(
+                self.session_id, obj_id, self.frame_index
+            )
+            self.cur_masks.pop(obj_id, None)
+            self._record_outputs(response, self.frame_index)
+
+        return latest_masks
+
     def clear_points(self):
         self.selected_points.clear()
         self.selected_labels.clear()
         self.selected_point_frames.clear()
         self.selected_point_obj_ids.clear()
-        return None, None, "Cleared points"
+        self._invalidate_tracking_results()
+        try:
+            self._replay_prompt_state()
+        except Exception as exc:
+            guru.exception("Clearing points failed")
+            return None, None, f"Error clearing points: {exc}"
+        index_mask = self.make_index_mask(self.cur_masks) if self.cur_masks else None
+        return index_mask, None, "Cleared points"
 
     def set_positive(self):
         self.cur_label_val = 1.0
@@ -87,10 +199,16 @@ class VideoModeHandler:
     def add_new_mask(self):
         existing = set(self.cur_masks)
         self.cur_mask_idx = max(existing | {self.cur_mask_idx}) + 1
-        self.clear_points()
+        self._invalidate_tracking_results()
+        try:
+            self._replay_prompt_state()
+        except Exception as exc:
+            guru.exception("Creating object failed")
+            return None, f"Error creating object: {exc}"
         return None, f"Creating new object with id {self.cur_mask_idx}"
 
     def reset(self):
+        self._invalidate_tracking_results()
         if self.session_id is not None:
             try:
                 self.backend.close_session(self.session_id)
@@ -109,11 +227,17 @@ class VideoModeHandler:
         self.selected_point_obj_ids.clear()
         self.current_text_prompt = None
         self.text_prompt_frame_idx = 0
+        self.box_prompts.clear()
+        self.removed_object_ids.clear()
+        self.img_dir = ""
+        self.img_paths = []
 
     def set_img_dir(self, img_dir: str) -> int:
         self.reset()
         self.img_dir = img_dir
-        self.img_paths = [f"{img_dir}/{p}" for p in sorted(os.listdir(img_dir)) if isimage(p)]
+        self.img_paths = [
+            f"{img_dir}/{p}" for p in sorted(os.listdir(img_dir)) if isimage(p)
+        ]
         self.session_id = self.backend.start_session(self.img_dir)
         guru.debug(f"Started SAM 3.1 session: {self.session_id}")
         return len(self.img_paths)
@@ -142,16 +266,11 @@ class VideoModeHandler:
             return None, "Please enter a text prompt"
 
         try:
-            self.backend.reset_session(self.session_id)
-            self.cur_masks.clear()
             self.current_text_prompt = text_prompt.strip()
             self.text_prompt_frame_idx = int(frame_idx)
-            response = self.backend.add_prompt(
-                self.session_id,
-                frame_idx,
-                text=self.current_text_prompt,
-            )
-            self._update_masks_from_outputs(response.get("outputs"))
+            self.removed_object_ids.clear()
+            self._invalidate_tracking_results()
+            self._replay_prompt_state()
             if self.cur_masks:
                 index_mask = self.make_index_mask(self.cur_masks)
                 return index_mask, f"Detected {len(self.cur_masks)} object(s)"
@@ -166,23 +285,10 @@ class VideoModeHandler:
         self.selected_point_frames.append(int(frame_idx))
         self.selected_point_obj_ids.append(self.cur_mask_idx)
 
-        current_points = [
-            (pt, lbl)
-            for pt, lbl, frm, obj_id in zip(
-                self.selected_points,
-                self.selected_labels,
-                self.selected_point_frames,
-                self.selected_point_obj_ids,
-            )
-            if frm == int(frame_idx) and obj_id == self.cur_mask_idx
-        ]
-        points_array = np.array([pt for pt, _ in current_points], dtype=np.float32)
-        labels_array = np.array([lbl for _, lbl in current_points], dtype=np.int32)
-        masks = self.get_sam_mask(int(frame_idx), points_array, labels_array)
-        self.cur_masks.update(masks)
+        self.removed_object_ids.discard(self.cur_mask_idx)
+        self._invalidate_tracking_results()
+        self._replay_prompt_state()
         index_mask = self.make_index_mask(self.cur_masks)
-        if self.index_masks_all and 0 <= int(frame_idx) < len(self.index_masks_all):
-            self.index_masks_all[int(frame_idx)] = index_mask
         return index_mask
 
     def remove_point(self, index: int):
@@ -191,6 +297,8 @@ class VideoModeHandler:
             del self.selected_labels[index]
             del self.selected_point_frames[index]
             del self.selected_point_obj_ids[index]
+            self._invalidate_tracking_results()
+            self._replay_prompt_state()
             return True
         return False
 
@@ -200,26 +308,17 @@ class VideoModeHandler:
         if selected_index >= len(self.selected_points):
             return None, "Invalid point index"
 
-        self.remove_point(selected_index)
-        current_points = [
-            (pt, lbl)
-            for pt, lbl, frm, obj_id in zip(
-                self.selected_points,
-                self.selected_labels,
-                self.selected_point_frames,
-                self.selected_point_obj_ids,
-            )
-            if frm == self.frame_index and obj_id == self.cur_mask_idx
-        ]
-        if current_points:
-            points_array = np.array([pt for pt, _ in current_points], dtype=np.float32)
-            labels_array = np.array([lbl for _, lbl in current_points], dtype=np.int32)
-            self.cur_masks.update(self.get_sam_mask(self.frame_index, points_array, labels_array))
-        else:
-            self.cur_masks.pop(self.cur_mask_idx, None)
+        try:
+            self.remove_point(selected_index)
+        except Exception as exc:
+            guru.exception("Remove point failed")
+            return None, f"Error removing point: {exc}"
 
-        index_mask = self.make_index_mask(self.cur_masks)
-        return index_mask, f"Removed point. {len(self.selected_points)} points remaining."
+        index_mask = self.make_index_mask(self.cur_masks) if self.cur_masks else None
+        return (
+            index_mask,
+            f"Removed point. {len(self.selected_points)} points remaining.",
+        )
 
     def add_box_prompt(self, frame_idx: int, box_coords: tuple):
         if self.session_id is None:
@@ -230,13 +329,14 @@ class VideoModeHandler:
         try:
             h, w = self.image.shape[:2]
             box_xywh = normalize_xyxy_box(box_coords, w, h)
-            response = self.backend.add_prompt(
-                self.session_id,
-                frame_idx,
-                bounding_boxes=[box_xywh],
-                bounding_box_labels=[1],
-            )
-            masks = self._update_masks_from_outputs(response.get("outputs"))
+            prompt = {
+                "frame_idx": int(frame_idx),
+                "box_xywh": box_xywh,
+                "obj_ids": set(),
+            }
+            self.box_prompts.append(prompt)
+            self._invalidate_tracking_results()
+            masks = self._replay_prompt_state()
             if masks:
                 index_mask = self.make_index_mask(self.cur_masks)
                 return index_mask, f"Box prompt detected {len(masks)} object(s)"
@@ -248,7 +348,7 @@ class VideoModeHandler:
     def get_sam_mask(self, frame_idx, input_points, input_labels):
         if self.session_id is None or self.image is None:
             return {}
-        h, w = self.image.shape[:2]
+        h, w = self._frame_shape(int(frame_idx))
         rel_points = normalize_points(input_points, w, h)
         response = self.backend.add_prompt(
             self.session_id,
@@ -265,14 +365,34 @@ class VideoModeHandler:
         if self.session_id is None:
             return None, "No active session"
         try:
-            response = self.backend.remove_object(self.session_id, obj_id, self.frame_index)
-            self.cur_masks.pop(int(obj_id), None)
-            masks = self._update_masks_from_outputs(response.get("outputs"))
-            if not masks and obj_id in self.cur_masks:
-                self.cur_masks.pop(int(obj_id), None)
+            obj_id = int(obj_id)
+            retained_points = [
+                (point, label, frame_idx, point_obj_id)
+                for point, label, frame_idx, point_obj_id in zip(
+                    self.selected_points,
+                    self.selected_labels,
+                    self.selected_point_frames,
+                    self.selected_point_obj_ids,
+                )
+                if point_obj_id != obj_id
+            ]
+            self.selected_points = [record[0] for record in retained_points]
+            self.selected_labels = [record[1] for record in retained_points]
+            self.selected_point_frames = [record[2] for record in retained_points]
+            self.selected_point_obj_ids = [record[3] for record in retained_points]
+            self.box_prompts = [
+                prompt for prompt in self.box_prompts if obj_id not in prompt["obj_ids"]
+            ]
+            self.removed_object_ids.add(obj_id)
+            self._invalidate_tracking_results()
+            self._replay_prompt_state()
+            self.cur_masks.pop(obj_id, None)
             index_mask = self.make_index_mask(self.cur_masks)
             if self.cur_masks:
-                return index_mask, f"Removed object {obj_id}. {len(self.cur_masks)} object(s) remaining."
+                return (
+                    index_mask,
+                    f"Removed object {obj_id}. {len(self.cur_masks)} object(s) remaining.",
+                )
             return index_mask, f"Removed object {obj_id}. No objects left."
         except Exception as exc:
             guru.exception("Remove object failed")
@@ -299,7 +419,9 @@ class VideoModeHandler:
                 if not (0 <= frame_idx < len(images)):
                     continue
                 target_shape = images[frame_idx].shape[:2]
-                masks = output_masks_by_obj(result.get("outputs"), target_shape=target_shape)
+                masks = output_masks_by_obj(
+                    result.get("outputs"), target_shape=target_shape
+                )
                 video_segments[frame_idx] = masks
                 if masks:
                     frames_with_masks += 1
@@ -314,13 +436,29 @@ class VideoModeHandler:
 
         self.index_masks_all = []
         for frame_idx, img in enumerate(images):
-            idx_mask = index_mask_from_obj_masks(video_segments.get(frame_idx, {}), img.shape[:2])
+            idx_mask = index_mask_from_obj_masks(
+                video_segments.get(frame_idx, {}), img.shape[:2]
+            )
             self.index_masks_all.append(idx_mask)
 
         out_frames, self.color_masks_all = colorize_masks(images, self.index_masks_all)
-        out_vidpath = "tracked_colors.mp4"
-        iio.mimwrite(out_vidpath, out_frames)
-        return out_vidpath, f"Tracked {len(out_frames)} frames. Save masks if it looks good."
+        output_id = uuid4().hex
+        out_vidpath = Path(runtime_output_path(f"tracked_colors_{output_id}.mp4"))
+        temp_vidpath = out_vidpath.with_name(
+            f".{out_vidpath.stem}.{uuid4().hex}.tmp{out_vidpath.suffix}"
+        )
+        try:
+            iio.mimwrite(str(temp_vidpath), out_frames)
+            os.replace(temp_vidpath, out_vidpath)
+        except Exception as exc:
+            temp_vidpath.unlink(missing_ok=True)
+            guru.exception("Writing tracked video failed")
+            return None, f"Tracking failed: {exc}"
+        self.tracking_output_path = str(out_vidpath)
+        return (
+            self.tracking_output_path,
+            f"Tracked {len(out_frames)} frames. Save masks if it looks good.",
+        )
 
     def save_masks_to_dir(self, output_dir: str):
         if not self.color_masks_all:
@@ -328,8 +466,13 @@ class VideoModeHandler:
         if not output_dir or not output_dir.strip():
             return "Error: Mask save path is empty. Please load frames first to set the save path."
         os.makedirs(output_dir, exist_ok=True)
-        for img_path, clr_mask, id_mask in zip(self.img_paths, self.color_masks_all, self.index_masks_all):
-            name = os.path.basename(img_path)
-            iio.imwrite(f"{output_dir}/{name}", clr_mask)
-            np.save(f"{output_dir}/{name[:-4]}.npy", id_mask)
+        output_path = Path(output_dir)
+        for img_path, clr_mask, id_mask in zip(
+            self.img_paths, self.color_masks_all, self.index_masks_all
+        ):
+            source_path = Path(img_path)
+            iio.imwrite(
+                output_path / f"{source_path.stem}{source_path.suffix}", clr_mask
+            )
+            np.save(output_path / f"{source_path.stem}.npy", id_mask)
         return f"Saved masks to {output_dir}."
